@@ -591,10 +591,18 @@ function Complaint(props: { id: string }) {
 
 // --- Моё: избранное и брони ---------------------------------------------------------
 
-export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void }) {
+type MineTab = "trips" | "chats" | "favs";
+
+/**
+ * «Моё»: три вкладки вместо длинной ленты — брони, сообщения, избранное. Брони делятся на предстоящие
+ * и прошлые; у каждой маленькое фото слева, детали подтверждённой — в одной плашке
+ */
+export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number }) {
+  const [tab, setTab] = useState<MineTab>(props.unread ? "chats" : "trips");
   const [list, setList] = useState<BookingView[] | null>(null);
   const [favs, setFavs] = useState<ListingCard[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showPast, setShowPast] = useState(false);
   const load = () => api.myBookings().then((r) => setList(r.bookings), () => setError("Не получилось загрузить."));
   useEffect(() => {
     load();
@@ -610,87 +618,138 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
       alert(errorText(e));
     }
   };
+  const hide = async (b: BookingView) => {
+    if (!confirm("Убрать бронь из списка?")) return;
+    try {
+      await api.hideBooking(b.id);
+      load();
+    } catch (e) {
+      alert(errorText(e));
+    }
+  };
 
-  if (error) return <p className="text-bad">{error}</p>;
-  if (!list) return <Spinner />;
   const today = todaySamara();
+  const upcoming = (list ?? []).filter((b) => b.status === "requested" || (b.status === "confirmed" && b.checkOut > today));
+  const past = (list ?? []).filter((b) => !upcoming.includes(b));
+  const tabs: [MineTab, string, number][] = [
+    ["trips", "Брони", upcoming.length],
+    ["chats", "Сообщения", props.unread ?? 0],
+    ["favs", "Избранное", favs.length],
+  ];
+
+  const row = (b: BookingView) => (
+    <li key={b.id} className="p-3">
+      <div className="flex gap-3">
+        <button className="size-16 shrink-0 overflow-hidden rounded-lg bg-surface-2" onClick={() => props.onOpen(b.listingId)} aria-label={`Открыть: ${b.title}`}>
+          {b.photo ? <img src={b.photo} alt="" className="size-full object-cover" loading="lazy" /> : <Home className="m-auto text-dim" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <button className="min-w-0 truncate text-left font-semibold text-ink" onClick={() => props.onOpen(b.listingId)}>
+              {b.title}
+            </button>
+            <b className="shrink-0 text-[15px] text-ink tabular-nums">{rub(b.total)}</b>
+          </div>
+          <div className="truncate text-[13px] text-dim">
+            {b.locality} · {rangeText(b.checkIn, b.checkOut)} · {guestsText(b.guests)}
+          </div>
+          <div className="mt-1.5">
+            <Badge booking={b.status} />
+          </div>
+        </div>
+      </div>
+      {b.status === "confirmed" && b.checkOut > today && (
+        <div className="mt-3 space-y-0.5 rounded-lg bg-accent-soft px-3 py-2.5 text-[14px] text-ink">
+          <div>{b.address}</div>
+          <div className="text-dim">
+            Заезд с {b.checkInTime}
+            {b.deposit ? ` · залог ${rub(b.deposit)}` : ""}
+          </div>
+          {b.phone && (
+            <a className="inline-flex items-center gap-1.5 pt-1 font-semibold text-accent" href={`tel:${b.phone}`}>
+              <Phone size={15} /> Позвонить хозяину {phoneText(b.phone)}
+            </a>
+          )}
+        </div>
+      )}
+      {b.status === "confirmed" && b.checkIn >= today && <p className="mt-2 text-[13px] text-dim">{cancelText(b.cancelDays)}</p>}
+      {b.canReview && <ReviewForm bookingId={b.id} onDone={load} />}
+      <div className="mt-2 flex gap-5 empty:hidden">
+        {(b.status === "requested" || b.status === "confirmed") && b.checkIn >= today && (
+          <button className="text-[14px] font-semibold text-bad" onClick={() => cancel(b)}>
+            {b.status === "requested" ? "Отменить запрос" : "Отменить бронь"}
+          </button>
+        )}
+        {/* Завершённую, отменённую или отклонённую бронь можно убрать из списка */}
+        {!upcoming.includes(b) && (
+          <button className="text-[14px] font-semibold text-dim" onClick={() => hide(b)}>
+            Удалить из списка
+          </button>
+        )}
+      </div>
+    </li>
+  );
+
   return (
     <>
-      <ThreadList onOpen={props.onChat} />
-      {favs.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-2 flex items-center gap-2 text-[17px] font-bold text-ink">
-            <Heart size={17} /> Избранное
-          </h2>
-          <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4">
+      <h1 className="mb-3 text-[22px] leading-tight font-bold tracking-[-0.01em] text-ink">Моё</h1>
+      <div className="mb-4 grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1" role="tablist">
+        {tabs.map(([id, title, n]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`h-9 rounded-lg text-[14px] font-semibold ${tab === id ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]" : "text-dim"}`}
+          >
+            {title}
+            {n > 0 && <span className={`ml-1 tabular-nums ${id === "chats" ? "text-bad" : "text-dim"}`}>{n}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "trips" &&
+        (error ? (
+          <p className="text-bad">{error}</p>
+        ) : !list ? (
+          <Spinner />
+        ) : (
+          <>
+            {upcoming.length === 0 ? (
+              <div className="card p-5 text-center text-[14px] text-dim">Предстоящих броней нет. Найдите жильё во вкладке «Поиск».</div>
+            ) : (
+              <ul className="card divide-y divide-line">{upcoming.map(row)}</ul>
+            )}
+            {past.length > 0 && (
+              <>
+                <button className="mt-5 mb-2 flex w-full items-center justify-between text-[15px] font-semibold text-ink" onClick={() => setShowPast(!showPast)} aria-expanded={showPast}>
+                  Прошлые и отменённые · {past.length}
+                  <ChevronDown size={18} className={showPast ? "rotate-180" : ""} />
+                </button>
+                {showPast && <ul className="card divide-y divide-line">{past.map(row)}</ul>}
+              </>
+            )}
+          </>
+        ))}
+
+      {tab === "chats" && <ThreadList onOpen={props.onChat} bare />}
+
+      {tab === "favs" &&
+        (favs.length === 0 ? (
+          <div className="card p-5 text-center text-[14px] text-dim">Нажмите на сердечко в объявлении, и оно появится здесь.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
             {favs.map((c) => (
-              <button key={c.id} className="card w-40 shrink-0 snap-start overflow-hidden p-0 text-left" onClick={() => props.onOpen(c.id)}>
-                <div className="aspect-[4/3] bg-surface-2">{c.photo && <img src={c.photo} alt="" className="size-full object-cover" loading="lazy" />}</div>
-                <div className="p-2 text-[13px]">
-                  <div className="truncate font-semibold text-ink">{c.title}</div>
-                  <div className="text-dim">от {rub(c.priceFrom)}</div>
+              <button key={c.id} className="text-left" onClick={() => props.onOpen(c.id)}>
+                <div className="aspect-[4/3] overflow-hidden rounded-xl bg-surface-2">{c.photo && <img src={c.photo} alt="" className="size-full object-cover" loading="lazy" />}</div>
+                <div className="mt-1.5 truncate text-[14px] font-semibold text-ink">{c.title}</div>
+                <div className="truncate text-[13px] text-dim">
+                  {c.locality} · от {rub(c.priceFrom)}
                 </div>
               </button>
             ))}
           </div>
-        </section>
-      )}
-      <H1>Мои брони</H1>
-      {list.length === 0 && <p className="text-dim">Здесь появятся ваши запросы и брони.</p>}
-      <ul className="space-y-3">
-        {list.map((b) => (
-          <li key={b.id} className="card p-4">
-            <div className="flex items-start justify-between gap-2">
-              <button className="text-left font-semibold text-ink" onClick={() => props.onOpen(b.listingId)}>
-                {b.title}
-              </button>
-              <Badge booking={b.status} />
-            </div>
-            <div className="mt-1 text-[14px] text-dim">
-              {b.locality}, {rangeText(b.checkIn, b.checkOut)}, {nightsText(b.nights)}, {guestsText(b.guests)}
-            </div>
-            <div className="mt-1 font-bold text-ink tabular-nums">{rub(b.total)}</div>
-            {b.status === "confirmed" && (
-              <div className="mt-3 space-y-1 rounded-lg bg-accent-soft p-3 text-[14px] text-ink">
-                <div>Адрес: {b.address}</div>
-                {b.phone && (
-                  <a className="block font-semibold text-accent" href={`tel:${b.phone}`}>
-                    Хозяин: {phoneText(b.phone)}
-                  </a>
-                )}
-                <div>
-                  Заезд с {b.checkInTime}
-                  {b.deposit ? `, залог ${rub(b.deposit)}` : ""}
-                </div>
-              </div>
-            )}
-            {b.status === "confirmed" && b.checkIn >= today && <p className="mt-2 text-[13px] text-dim">{cancelText(b.cancelDays)}</p>}
-            {(b.status === "requested" || b.status === "confirmed") && b.checkIn >= today && (
-              <button className="mt-3 text-[14px] font-semibold text-bad" onClick={() => cancel(b)}>
-                {b.status === "requested" ? "Отменить запрос" : "Отменить бронь"}
-              </button>
-            )}
-            {b.canReview && <ReviewForm bookingId={b.id} onDone={load} />}
-            {/* Завершённую, отменённую или отклонённую бронь можно убрать из списка */}
-            {!(b.status === "requested" || (b.status === "confirmed" && b.checkOut > today)) && (
-              <button
-                className="mt-3 ml-4 text-[14px] font-semibold text-dim"
-                onClick={async () => {
-                  if (!confirm("Убрать бронь из списка?")) return;
-                  try {
-                    await api.hideBooking(b.id);
-                    load();
-                  } catch (e) {
-                    alert(errorText(e));
-                  }
-                }}
-              >
-                Удалить из списка
-              </button>
-            )}
-          </li>
         ))}
-      </ul>
     </>
   );
 }

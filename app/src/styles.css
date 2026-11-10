@@ -98,6 +98,23 @@
   .field:focus {
     border-color: var(--color-accent);
   }
+  /* Поле внутри строки анкеты: без рамки, значение прижато вправо (подпись — слева) */
+  .row-input {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink);
+    font-size: 15px;
+    text-align: right;
+    text-align-last: right;
+    outline: none;
+  }
+  .row-input::placeholder {
+    color: var(--color-dim);
+    font-weight: 400;
+  }
   .label {
     display: block;
     margin-bottom: 6px;

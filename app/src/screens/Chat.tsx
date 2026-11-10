@@ -112,17 +112,28 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
 }
 
 /** Список переписок (и как гостя, и как хозяина) — во вкладке «Моё» */
-export function ThreadList(props: { onOpen: (id: string) => void }) {
-  const [threads, setThreads] = useState<ThreadView[]>([]);
+/** bare — внутри вкладки «Сообщения»: без заголовка и с пустым состоянием */
+export function ThreadList(props: { onOpen: (id: string) => void; bare?: boolean }) {
+  const [threads, setThreads] = useState<ThreadView[] | null>(null);
   useEffect(() => {
-    api.chatList().then((r) => setThreads(r.threads), () => {});
+    api.chatList().then((r) => setThreads(r.threads), () => setThreads([]));
   }, []);
-  if (!threads.length) return null;
+  if (!threads) return props.bare ? <p className="py-6 text-center text-dim">Загружаем…</p> : null;
+  if (!threads.length) {
+    return props.bare ? (
+      <div className="card p-5 text-center text-[14px] text-dim">
+        <MessageCircle className="mx-auto mb-2" size={22} />
+        Здесь будут переписки с хозяевами и гостями.
+      </div>
+    ) : null;
+  }
   return (
-    <section className="mb-6">
-      <h2 className="mb-2 flex items-center gap-2 text-[17px] font-bold text-ink">
-        <MessageCircle size={17} /> Сообщения
-      </h2>
+    <section className={props.bare ? "" : "mb-6"}>
+      {!props.bare && (
+        <h2 className="mb-2 flex items-center gap-2 text-[17px] font-bold text-ink">
+          <MessageCircle size={17} /> Сообщения
+        </h2>
+      )}
       <ul className="card divide-y divide-line">
         {threads.map((t) => (
           <li key={t.id}>

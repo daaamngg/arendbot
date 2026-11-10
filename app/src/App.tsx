@@ -101,7 +101,7 @@ export default function App() {
   } else if (tab === "search") {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   } else if (tab === "trips") {
-    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} />;
+    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
   } else {

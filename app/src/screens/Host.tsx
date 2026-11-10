@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Camera, Home, Plus, Trash2 } from "lucide-react";
-import { MAX_PHOTOS } from "../../../shared/catalog.ts";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, Camera, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { MAX_PHOTOS, listingTitle } from "../../../shared/catalog.ts";
 import { addDays, guestsText, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { hasContacts } from "../../../shared/trust.ts";
 import { CANCEL_OPTIONS, PLACE_TYPES, type Listing } from "../../../shared/types.ts";
@@ -368,120 +368,145 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
   const canSubmit = l && ["draft", "rejected", "paused"].includes(l.status);
   const toggleAmenity = (a: string) => set({ amenities: form.amenities?.includes(a) ? form.amenities.filter((x) => x !== a) : [...(form.amenities ?? []), a] });
 
+  const num = (k: "area" | "floor" | "priceWeekday" | "priceWeekend" | "deposit") => ({
+    value: form[k] == null || form[k] === 0 ? "" : String(form[k]),
+    onChange: (e: { target: { value: string } }) => {
+      const v = e.target.value.replace(/\D/g, "");
+      set({ [k]: v === "" ? (k === "area" || k === "floor" ? null : 0) : Number(v) } as Form);
+    },
+  });
+
   return (
     <>
-      <H1 sub={l ? <Badge listing={l.status} /> : "Заполните, добавьте фото и опубликуйте. Объявление сразу появится в поиске."}>{props.id ? "Объявление" : "Новое объявление"}</H1>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[22px] leading-tight font-bold tracking-[-0.01em] text-ink">{props.id ? listingTitleOf(form) : "Новое объявление"}</h1>
+          <p className="mt-0.5 text-[13px] text-dim">{draftNote && !msg ? draftNote : l ? "" : "Черновик сохраняется сам, можно вернуться позже"}</p>
+        </div>
+        {l && <Badge listing={l.status} />}
+      </div>
       {l?.status === "rejected" && l.moderatorNote && <p className="mb-3 rounded-lg bg-[#f5e1dd] p-3 text-[14px] text-bad">Модератор: {l.moderatorNote}</p>}
 
       <div className="space-y-5">
-        <section>
-          <span className="label">Что сдаёте</span>
-          <div className="flex flex-wrap gap-2">
+        {/* Фото — первыми: это главное, что видит гость. Плитка «+» в конце сетки */}
+        <Group title="Фото" hint={`${photos.length} из ${MAX_PHOTOS}, минимум 3. Первое станет обложкой`}>
+          <ul className="grid grid-cols-3 gap-2 p-3">
+            {photos.map((p, i) => (
+              <li key={p.url} className="relative overflow-hidden rounded-lg">
+                <img src={p.url} alt="" className="aspect-square w-full object-cover" />
+                {i === 0 && <span className="absolute top-1 left-1 rounded bg-ink/80 px-1.5 text-[11px] font-semibold text-white">обложка</span>}
+                <div className="absolute inset-x-0 bottom-0 flex justify-between bg-ink/55 px-1 py-0.5 text-white">
+                  <button className="disabled:opacity-30" aria-label="Раньше" disabled={i === 0} onClick={() => reorder(photos.map((_, j) => j).map((j) => (j === i ? i - 1 : j === i - 1 ? i : j)))}>
+                    <ArrowLeft size={16} />
+                  </button>
+                  <button aria-label="Удалить фото" onClick={() => reorder(photos.map((_, j) => j).filter((j) => j !== i))}>
+                    <Trash2 size={16} />
+                  </button>
+                  <button className="disabled:opacity-30" aria-label="Позже" disabled={i === photos.length - 1} onClick={() => reorder(photos.map((_, j) => j).map((j) => (j === i ? i + 1 : j === i + 1 ? i : j)))}>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </li>
+            ))}
+            {photos.length < MAX_PHOTOS && (
+              <li>
+                <label className={`grid aspect-square cursor-pointer place-items-center rounded-lg border-2 border-dashed border-line text-center text-[12px] font-semibold text-accent ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+                  <span className="flex flex-col items-center gap-1 px-1">
+                    {uploading ? <LoaderCircle className="animate-spin" size={20} /> : <Camera size={20} />}
+                    {uploading ?? "Добавить"}
+                  </span>
+                  <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { upload(e.target.files); e.target.value = ""; }} disabled={!!uploading} />
+                </label>
+              </li>
+            )}
+          </ul>
+        </Group>
+
+        <Group title="Жильё">
+          <div className="flex flex-wrap gap-2 px-4 py-3">
             {PLACE_TYPES.map((t) => (
               <button key={t.id} type="button" className="chip" aria-pressed={form.type === t.id} onClick={() => set({ type: t.id })}>
                 {t.title}
               </button>
             ))}
           </div>
-        </section>
-
-        <section className="grid gap-3">
-          <div>
-            <label className="label" htmlFor="f-loc">
-              Город или посёлок
-            </label>
-            <select id="f-loc" className="field" value={form.locality} onChange={(e) => set({ locality: e.target.value, district: "" })}>
+          <Row label="Город">
+            <select className="row-input" value={form.locality} onChange={(e) => set({ locality: e.target.value, district: "" })} aria-label="Город или посёлок">
               {props.me.localities.map((x) => (
                 <option key={x}>{x}</option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="f-dis">
-              Район
-            </label>
+          </Row>
+          <Row label="Район">
             {districts.length ? (
-              <select id="f-dis" className="field" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })}>
+              <select className="row-input" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })} aria-label="Район">
                 <option value="">Не указан</option>
                 {districts.map((x) => (
                   <option key={x}>{x}</option>
                 ))}
               </select>
             ) : (
-              <input id="f-dis" className="field" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })} placeholder="Например, центр" />
+              <input className="row-input" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })} placeholder="например, центр" aria-label="Район" />
             )}
-          </div>
-          <div>
-            <label className="label" htmlFor="f-adr">
-              Адрес
-            </label>
-            <input id="f-adr" className="field" value={form.address ?? ""} onChange={(e) => set({ address: e.target.value })} placeholder="Улица, дом, квартира" />
-            <p className="mt-1 text-[13px] text-dim">Гость увидит адрес только после того, как вы подтвердите бронь.</p>
-          </div>
-        </section>
+          </Row>
+          <Row label="Адрес" hint="Гость увидит после подтверждения брони">
+            <input id="f-adr" className="row-input" value={form.address ?? ""} onChange={(e) => set({ address: e.target.value })} placeholder="улица, дом, квартира" aria-label="Адрес" />
+          </Row>
+        </Group>
 
-        <section className="card divide-y divide-line">
+        <Group title="Размер">
           {(
             [
               ["rooms", "Комнат", 1, 10],
               ["guests", "Гостей максимум", 1, 20],
               ["beds", "Спальных мест", 1, 20],
-              ["minNights", "Ночей минимум", 1, 30],
             ] as const
           ).map(([k, title, min, max]) => (
-            <div key={k} className="flex items-center justify-between px-4 py-2.5">
-              <span className="text-[15px] text-ink">{title}</span>
+            <Row key={k} label={title} tight>
               <Stepper label={title} value={(form[k] as number) ?? min} min={min} max={max} onChange={(v) => set({ [k]: v } as Form)} />
-            </div>
+            </Row>
           ))}
-        </section>
+          <Row label="Площадь, м²">
+            <input className="row-input tabular-nums" inputMode="numeric" placeholder="—" aria-label="Площадь" {...num("area")} />
+          </Row>
+          <Row label="Этаж">
+            <input className="row-input tabular-nums" inputMode="numeric" placeholder="—" aria-label="Этаж" {...num("floor")} />
+          </Row>
+        </Group>
 
-        <section className="grid grid-cols-2 gap-3">
-          {(
-            [
-              ["area", "Площадь, м²"],
-              ["floor", "Этаж"],
-              ["priceWeekday", "Ночь в будни, ₽"],
-              ["priceWeekend", "Ночь в пт и сб, ₽"],
-              ["deposit", "Залог, ₽"],
-            ] as const
-          ).map(([k, title]) => (
-            <div key={k}>
-              <label className="label" htmlFor={`f-${k}`}>
-                {title}
-              </label>
-              <input
-                id={`f-${k}`}
-                className="field tabular-nums"
-                inputMode="numeric"
-                value={form[k] == null || form[k] === 0 ? "" : String(form[k])}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, "");
-                  set({ [k]: v === "" ? (k === "area" || k === "floor" ? null : 0) : Number(v) } as Form);
-                }}
-                placeholder={k === "deposit" ? "0" : ""}
-              />
-            </div>
-          ))}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="label" htmlFor="f-in">
-                Заезд
-              </label>
-              <input id="f-in" className="field" type="time" value={form.checkIn ?? "14:00"} onChange={(e) => set({ checkIn: e.target.value })} />
-            </div>
-            <div>
-              <label className="label" htmlFor="f-out">
-                Выезд
-              </label>
-              <input id="f-out" className="field" type="time" value={form.checkOut ?? "12:00"} onChange={(e) => set({ checkOut: e.target.value })} />
+        <Group title="Цена и заселение">
+          <Row label="Ночь в будни, ₽">
+            <input className="row-input font-semibold tabular-nums" inputMode="numeric" placeholder="0" aria-label="Цена в будни" {...num("priceWeekday")} />
+          </Row>
+          <Row label="Ночь в пт и сб, ₽">
+            <input className="row-input font-semibold tabular-nums" inputMode="numeric" placeholder="0" aria-label="Цена в выходные" {...num("priceWeekend")} />
+          </Row>
+          <Row label="Залог, ₽" hint="Возвращается при выезде">
+            <input className="row-input tabular-nums" inputMode="numeric" placeholder="без залога" aria-label="Залог" {...num("deposit")} />
+          </Row>
+          <Row label="Ночей минимум" tight>
+            <Stepper label="ночей минимум" value={form.minNights ?? 1} min={1} max={30} onChange={(v) => set({ minNights: v })} />
+          </Row>
+          <Row label="Заезд с">
+            <input className="row-input" type="time" value={form.checkIn ?? "14:00"} onChange={(e) => set({ checkIn: e.target.value })} aria-label="Заезд с" />
+          </Row>
+          <Row label="Выезд до">
+            <input className="row-input" type="time" value={form.checkOut ?? "12:00"} onChange={(e) => set({ checkOut: e.target.value })} aria-label="Выезд до" />
+          </Row>
+          <div className="px-4 py-3">
+            <div className="mb-2 text-[13px] text-dim">Бесплатная отмена для гостя</div>
+            <div className="flex flex-wrap gap-2">
+              {CANCEL_OPTIONS.map((o) => (
+                <button key={o.days} type="button" className="chip" aria-pressed={(form.cancelDays ?? 0) === o.days} onClick={() => set({ cancelDays: o.days })}>
+                  {o.title}
+                </button>
+              ))}
             </div>
           </div>
-        </section>
+        </Group>
 
-        <section>
-          <span className="label">Правила</span>
-          <div className="flex flex-wrap gap-2">
+        <Group title="Правила и удобства">
+          <div className="flex flex-wrap gap-2 px-4 py-3">
             {(
               [
                 ["kids", "Можно с детьми"],
@@ -495,86 +520,35 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
               </button>
             ))}
           </div>
-        </section>
-
-        <section>
-          <span className="label">Бесплатная отмена для гостя</span>
-          <div className="flex flex-wrap gap-2">
-            {CANCEL_OPTIONS.map((o) => (
-              <button key={o.days} type="button" className="chip" aria-pressed={(form.cancelDays ?? 0) === o.days} onClick={() => set({ cancelDays: o.days })}>
-                {o.title}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[13px] text-dim">Если гость отменит позже, вы увидите это в сообщении об отмене.</p>
-        </section>
-
-        <section>
-          <span className="label">Удобства</span>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 px-4 py-3">
             {props.me.amenities.map((a) => (
               <button key={a} type="button" className="chip" aria-pressed={!!form.amenities?.includes(a)} onClick={() => toggleAmenity(a)}>
                 {a}
               </button>
             ))}
           </div>
-        </section>
+        </Group>
 
-        <section>
-          <label className="label" htmlFor="f-desc">
-            Описание
-          </label>
+        <Group title="Описание">
           <textarea
             id="f-desc"
-            className="field resize-none"
+            className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] text-ink outline-none"
             rows={5}
             maxLength={3000}
             value={form.description ?? ""}
             onChange={(e) => set({ description: e.target.value })}
             placeholder="Что рядом, какой ремонт, есть ли парковка, как заселяетесь"
+            aria-label="Описание"
           />
-          {hasContacts(form.description ?? "") ? (
-            <p className="mt-1 text-[13px] text-bad">Уберите телефоны, ссылки и мессенджеры: так не сохранится. Номер гость получит после подтверждения брони.</p>
-          ) : (
-            <p className="mt-1 text-[13px] text-dim">Без телефонов и ссылок: гость получит ваш номер, когда вы подтвердите бронь.</p>
-          )}
-        </section>
-
-        <section>
-          <span className="label">
-            Фото <span className="font-normal text-dim">({photos.length} из {MAX_PHOTOS}, минимум 3)</span>
-          </span>
-          {photos.length > 0 && (
-            <ul className="mb-3 grid grid-cols-3 gap-2">
-              {photos.map((p, i) => (
-                <li key={p.url} className="relative overflow-hidden rounded-lg">
-                  <img src={p.url} alt="" className="aspect-square w-full object-cover" />
-                  {i === 0 && <span className="absolute top-1 left-1 rounded bg-ink/80 px-1.5 text-[11px] font-semibold text-white">обложка</span>}
-                  <div className="absolute inset-x-0 bottom-0 flex justify-between bg-ink/60 p-1 text-white">
-                    <button aria-label="Раньше" disabled={i === 0} onClick={() => reorder(photos.map((_, j) => j).map((j) => (j === i ? i - 1 : j === i - 1 ? i : j)))}>
-                      <ArrowLeft size={16} />
-                    </button>
-                    <button aria-label="Удалить фото" onClick={() => reorder(photos.map((_, j) => j).filter((j) => j !== i))}>
-                      <Trash2 size={16} />
-                    </button>
-                    <button aria-label="Позже" disabled={i === photos.length - 1} onClick={() => reorder(photos.map((_, j) => j).map((j) => (j === i ? i + 1 : j === i + 1 ? i : j)))}>
-                      <ArrowRight size={16} />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <label className={`btn btn-soft w-full ${uploading || photos.length >= MAX_PHOTOS ? "pointer-events-none opacity-50" : ""}`}>
-            <Camera size={18} /> {uploading ?? (photos.length ? "Добавить ещё фото" : "Добавить фото")}
-            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { upload(e.target.files); e.target.value = ""; }} disabled={!!uploading} />
-          </label>
-          <p className="mt-1 text-[13px] text-dim">Светлые фото самой квартиры: комнаты, кухня, ванная. Первое станет обложкой.</p>
-        </section>
+          <p className={`px-4 py-2.5 text-[13px] ${hasContacts(form.description ?? "") ? "text-bad" : "text-dim"}`}>
+            {hasContacts(form.description ?? "")
+              ? "Уберите телефоны, ссылки и мессенджеры: так не сохранится. Номер гость получит после подтверждения брони."
+              : "Без телефонов и ссылок: гость получит ваш номер, когда вы подтвердите бронь."}
+          </p>
+        </Group>
       </div>
 
       {msg && <p className="mt-4 rounded-lg bg-accent-soft p-3 text-[14px] text-ink">{msg}</p>}
-      {draftNote && !msg && <p className="mt-3 text-[13px] text-dim">{draftNote}</p>}
       {canSubmit && missing.length > 0 && <p className="mt-3 text-[14px] text-dim">Чтобы опубликовать, не хватает: {missing.join(", ")}.</p>}
       {l?.status === "active" && (
         <button className="mt-4 text-[14px] font-semibold text-dim" onClick={async () => setL((await api.pause(l.id, true)).listing)}>
@@ -589,8 +563,8 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
 
       <Sticky>
         {canSubmit ? (
-          <button className="btn btn-main w-full" onClick={submit} disabled={busy}>
-            Опубликовать
+          <button className="btn btn-main w-full" onClick={submit} disabled={busy || missing.length > 0}>
+            {missing.length ? `Осталось заполнить: ${missing.length}` : "Опубликовать"}
           </button>
         ) : (
           <button className="btn btn-main w-full" onClick={save} disabled={busy}>
@@ -601,6 +575,37 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
     </>
   );
 }
+
+/** Раздел анкеты: подпись сверху, внутри — карточка со строками, как поиск на главном экране */
+function Group(props: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
+        <h2 className="text-[15px] font-bold text-ink">{props.title}</h2>
+        {props.hint && <span className="text-right text-[12px] text-dim">{props.hint}</span>}
+      </div>
+      <div className="card divide-y divide-line">{props.children}</div>
+    </section>
+  );
+}
+
+/** Строка анкеты: подпись слева, поле справа без своей рамки */
+function Row(props: { label: string; hint?: string; tight?: boolean; children: ReactNode }) {
+  // Строка со счётчиком — обычный блок: <label> вокруг кнопок «−/+» нажимал бы «−» при нажатии на подпись
+  const Tag = props.tight ? "div" : "label";
+  return (
+    <Tag className={`flex items-center gap-3 px-4 ${props.tight ? "py-1.5" : "py-2.5"}`}>
+      <span className="min-w-0 shrink-0 basis-[42%]">
+        <span className="block text-[14px] text-ink">{props.label}</span>
+        {props.hint && <span className="block text-[12px] leading-tight text-dim">{props.hint}</span>}
+      </span>
+      <span className="flex min-w-0 flex-1 justify-end">{props.children}</span>
+    </Tag>
+  );
+}
+
+/** Название в шапке анкеты — по введённым данным («1-комн. квартира, 36 м²») */
+const listingTitleOf = (f: Form) => (f.type ? listingTitle({ type: f.type, rooms: f.rooms ?? 1, area: f.area ?? null }) : "Объявление");
 
 // --- Календарь: хозяин закрывает даты, занятые бронями видны сразу -------------------------
 
