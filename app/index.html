@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F4F3EF" />
+    <meta name="color-scheme" content="light" />
+    <title>Посуточная аренда квартир</title>
+    <!-- Мост MAX: window.WebApp (initData, requestContact, BackButton). В обычном браузере просто не появится -->
+    <script defer src="https://st.max.ru/js/max-web-app.js"></script>
+    <style>
+      html { color-scheme: light; }
+      body { margin: 0; background: #f4f3ef; }
+      .boot { max-width: 560px; margin: 0 auto; padding: 16px; font: 600 17px system-ui, sans-serif; color: #1b1c1e; }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div class="boot" aria-busy="true">Посуточная аренда квартир</div></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

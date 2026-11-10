@@ -1,0 +1,9 @@
+node_modules
+dist
+.env*
+!.env.example
+server/.data
+*.log
+СООБЩЕНИЕ-*.txt
+ЗВОНОК-*.txt
+.vercel
