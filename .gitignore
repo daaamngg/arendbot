@@ -7,3 +7,6 @@ server/.data
 СООБЩЕНИЕ-*.txt
 ЗВОНОК-*.txt
 .vercel
+
+.vercel
+.env*

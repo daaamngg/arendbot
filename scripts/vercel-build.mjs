@@ -16,12 +16,12 @@ await build({
   entryPoints: ["server/vercel-demo.ts"],
   bundle: true,
   platform: "node",
-  target: "node20",
+  target: "node22",
   format: "esm",
   outfile: `${fn}/index.mjs`,
   logLevel: "warning",
 });
-writeFileSync(`${fn}/.vc-config.json`, JSON.stringify({ runtime: "nodejs20.x", handler: "index.mjs", launcherType: "Nodejs", maxDuration: 10 }, null, 2));
+writeFileSync(`${fn}/.vc-config.json`, JSON.stringify({ runtime: "nodejs22.x", handler: "index.mjs", launcherType: "Nodejs", maxDuration: 10 }, null, 2));
 
 writeFileSync(
   `${out}/config.json`,
