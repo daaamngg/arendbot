@@ -67,9 +67,21 @@ const byDesc = <T>(key: (x: T) => number) => (a: T, b: T) => key(b) - key(a);
 let seq = 0;
 
 /** photoUrl — по какому адресу отдавать загруженное фото (в облаке — адрес функции) */
-export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => string } = {}): Store {
+/**
+ * photoUrl — по какому адресу отдавать загруженное фото.
+ * photos — внешнее хранилище фото (в облаке — Object Storage). Без него фото лежат в самой таблице:
+ * в YDB так делать дорого (одно фото ≈ 100 единиц запроса из бесплатного миллиона), поэтому в облаке — бакет
+ */
+export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => string; photos?: { save(name: string, jpeg: Buffer): Promise<string> } } = {}): Store {
   const photoUrl = opts.photoUrl ?? ((name: string) => `/api/photos/${name}`);
-  const getStaff = async () => (await db.get<StaffMember[]>("staff", "all")) ?? [];
+  // Команда нужна почти в каждом запросе (/me, проверка прав) — держим 20 секунд в памяти, чтобы не читать базу каждый раз
+  let staffCache: { at: number; list: StaffMember[] } | null = null;
+  const getStaff = async () => {
+    if (staffCache && Date.now() - staffCache.at < 20_000) return staffCache.list;
+    const list = (await db.get<StaffMember[]>("staff", "all")) ?? [];
+    staffCache = { at: Date.now(), list };
+    return list;
+  };
   return {
     getUser: (id) => db.get<User>("user", s(id)),
     saveUser: (u) => db.put(userRow(u)),
@@ -158,7 +170,10 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
     setReplyTarget: (mid, t) => db.put({ kind: "reply", id: mid, data: t }),
 
     getStaff,
-    saveStaff: (list) => db.put({ kind: "staff", id: "all", data: list }),
+    async saveStaff(list) {
+      staffCache = null;
+      await db.put({ kind: "staff", id: "all", data: list });
+    },
     async getAdmins() {
       return (await getStaff()).map((m) => m.id);
     },
@@ -172,6 +187,7 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
 
     async savePhoto(jpeg) {
       const name = `${randomUUID()}.jpg`;
+      if (opts.photos) return opts.photos.save(name, jpeg);
       await db.put({ kind: "photo", id: name, data: jpeg.toString("base64") });
       return photoUrl(name);
     },

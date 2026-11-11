@@ -17,7 +17,7 @@ import { ydbTable } from "./ydb-table.ts";
 //   YDB_METADATA_CREDENTIALS=1   вход в базу по сервисному аккаунту функции
 //   APP_ORIGIN           адрес мини-приложения (https://….website.yandexcloud.net) — только ему разрешены запросы
 //   API_URL              адрес этой функции с «?p=» на конце — для ссылок на фото
-//   ADMIN_URL            адрес admin.html
+//   PHOTO_BUCKET         бакет для фото (публичное чтение, без списка файлов)
 
 const env = process.env;
 const config: Config = {
@@ -37,11 +37,11 @@ let ctxPromise: Promise<Ctx> | null = null;
 const getCtx = () =>
   (ctxPromise ??= (async () => {
     // Без этих настроек запускаться опасно (вебхук без секрета, вход без подписи) — лучше упасть сразу
-    for (const k of ["MAX_BOT_TOKEN", "WEBHOOK_SECRET", "YDB_CONNECTION", "APP_ORIGIN", "API_URL"]) if (!env[k]) throw new Error(`нет настройки ${k}`);
+    for (const k of ["MAX_BOT_TOKEN", "WEBHOOK_SECRET", "YDB_CONNECTION", "APP_ORIGIN", "API_URL", "PHOTO_BUCKET", "ADMIN_CODE"]) if (!env[k]) throw new Error(`нет настройки ${k}`);
     const table = await ydbTable(env.YDB_CONNECTION!);
     const log = (s: string) => console.log(s.slice(0, 2000));
     return {
-      store: docStore(table, { photoUrl: (name) => `${env.API_URL}/photos/${name}` }),
+      store: docStore(table, { photoUrl: (name) => `${env.API_URL}/photos/${name}`, photos: { save: savePhotoToBucket } }),
       max: maxApi({ token: config.botToken, dryRun: false, log }),
       config,
       log,
@@ -50,6 +50,22 @@ const getCtx = () =>
     ctxPromise = null; // следующий вызов попробует снова
     throw e;
   }));
+
+/** IAM-токен сервисного аккаунта функции: облако передаёт его в каждом вызове, ключи хранить не нужно */
+let iamToken = "";
+
+/** Фото — в бакет Object Storage. Читают его напрямую из бакета (не через функцию и не из базы) */
+async function savePhotoToBucket(name: string, jpeg: Buffer) {
+  const key = `photos/${name}`;
+  const url = `https://storage.yandexcloud.net/${env.PHOTO_BUCKET}/${key}`;
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "X-YaCloud-SubjectToken": iamToken, "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" },
+    body: new Uint8Array(jpeg),
+  });
+  if (!r.ok) throw new Error(`фото не сохранилось: ${r.status}`);
+  return url;
+}
 
 interface HttpEvent {
   httpMethod?: string;
@@ -68,7 +84,8 @@ const header = (e: HttpEvent, name: string) => {
   return k ? h[k] : undefined;
 };
 
-export async function handler(event: HttpEvent) {
+export async function handler(event: HttpEvent, context?: { token?: { access_token?: string } }) {
+  if (context?.token?.access_token) iamToken = context.token.access_token;
   // Таймер раз в минуту
   if (event.messages?.some((m) => m.event_metadata?.event_type?.includes("Timer"))) {
     await sweep(await getCtx());

@@ -225,7 +225,8 @@ async function editAll(ctx: Ctx, key: string, msg: OutMessage) {
 
 async function notifyAdmins(ctx: Ctx, msg: OutMessage, key?: string) {
   const admins = await ctx.store.getAdmins();
-  if (!admins.length) ctx.log("Нет модераторов: отправьте боту /admin <код>. Сообщение:\n" + msg.text);
+  // Без текста сообщения: в нём бывают имена и телефоны, а логи в облаке хранятся
+  if (!admins.length) ctx.log("Нет модераторов: отправьте боту код главного. Сообщение для команды не доставлено");
   for (const a of admins) await send(ctx, a, msg, key);
 }
 
