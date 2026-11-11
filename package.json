@@ -15,7 +15,8 @@
     "lucide-react": "^1.70.0",
     "preact": "^11.2.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "ydb-sdk": "^5.11.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",

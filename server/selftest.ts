@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { checkRange, price, todaySamara, addDays } from "../shared/dates.ts";
 import { decideDeadline, handleApi, handleWebhook, processUpdate, sweep, type Ctx } from "./handlers.ts";
 import { signedInit } from "./selftest-init.ts";
+import { docStore, memoryTable } from "./doc-store.ts";
 import { fileStore } from "./store.ts";
 
 let failed = 0;
@@ -35,7 +36,8 @@ const token = "test-token";
 const sent: { to: number; text: string; buttons: string[]; images: number }[] = [];
 let clock = Date.parse("2026-11-10T12:00:00+04:00");
 const ctx: Ctx = {
-  store: fileStore(join(mkdtempSync(join(tmpdir(), "arenda-test-")), "db.json")),
+  // STORE=doc — те же проверки на облачном хранилище (таблица документов в памяти вместо YDB)
+  store: process.env.STORE === "doc" ? docStore(memoryTable()) : fileStore(join(mkdtempSync(join(tmpdir(), "arenda-test-")), "db.json")),
   config: { botToken: token, adminCode: "code1", webhookSecret: "s", allowBrowser: false, decideHours: 3, botUsername: "test_bot", moderation: "pre" },
   log: () => {},
   now: () => clock,

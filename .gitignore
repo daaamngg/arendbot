@@ -10,3 +10,4 @@ server/.data
 
 .vercel
 .env*
+cloud-dist/
