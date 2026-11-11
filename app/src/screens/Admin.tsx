@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
 import { Flag, Search, UserMinus, UserPlus } from "lucide-react";
-import { guestsText, nightsFrom, rub } from "../../../shared/dates.ts";
+import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
-import { api, errorText, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
+import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
+import { useLive } from "../lib/live.ts";
+import { ask, askText } from "../ui/dialog.tsx";
 import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
 
 // Админка площадки. Модераторы проверяют объявления и жалобы, смотрят людей и журнал.
 // Главный (Сергей) ещё и собирает команду: назначает и снимает модераторов.
 
-type Section = "apps" | "complaints" | "review" | "listings" | "people" | "team" | "log";
+type Section = "apps" | "bookings" | "complaints" | "review" | "listings" | "people" | "team" | "log";
 
 // Заявки «хочу сдавать» — первыми: без решения модератора человек не может разместить жильё
 const SECTIONS: { id: Section; title: string }[] = [
   { id: "apps", title: "Заявки" },
+  { id: "bookings", title: "Брони" },
   { id: "complaints", title: "Жалобы" },
   { id: "review", title: "Проверка" },
   { id: "listings", title: "Объявления" },
@@ -27,9 +30,7 @@ export function AdminScreen(props: { owner: boolean }) {
   const [section, setSection] = useState<Section>("apps");
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  useEffect(() => {
-    api.stats().then(setStats, () => {});
-  }, [section]);
+  useLive(() => api.stats().then(setStats), 30000, [section]);
 
   /** Выполнить действие и показать итог одной строкой */
   const act = async (fn: () => Promise<unknown>, done: string, after?: () => void) => {
@@ -72,6 +73,7 @@ export function AdminScreen(props: { owner: boolean }) {
       {msg && <p className="mb-3 rounded-lg bg-accent-soft p-3 text-[14px] text-ink">{msg}</p>}
 
       {section === "apps" && <Applications act={act} />}
+      {section === "bookings" && <Bookings />}
       {section === "complaints" && <Complaints act={act} />}
       {section === "review" && <Review act={act} />}
       {section === "listings" && <AllListings act={act} />}
@@ -97,10 +99,9 @@ const REASONS: [string, string][] = [
 
 function Applications(props: { act: Act }) {
   const [list, setList] = useState<HostApplicationRow[] | null>(null);
-  const load = () => api.applications().then((r) => setList(r.applications), () => setList([]));
-  useEffect(() => {
-    load();
-  }, []);
+  const load = () => api.applications().then((r) => setList(r.applications), () => setList((x) => x ?? []));
+  // Новое приходит само, без перезагрузки
+  useLive(load, 15000);
   if (!list) return <Spinner />;
   if (!list.length) return <p className="text-dim">Новых заявок нет. Заявки приходят и в чат с ботом, с кнопками.</p>;
   return (
@@ -119,8 +120,8 @@ function Applications(props: { act: Act }) {
             </button>
             <button
               className="btn btn-line"
-              onClick={() => {
-                const note = prompt("Причина отказа — человек её увидит:", "Заявка не подходит под правила площадки.");
+              onClick={async () => {
+                const note = await askText("Причина отказа", "Заявка не подходит под правила площадки.", { text: "Человек её увидит.", ok: "Отказать", danger: true });
                 if (note !== null) props.act(() => api.decideApplication(a.id, false, note), "Отказано, человеку отправлен ответ.", load);
               }}
             >
@@ -137,10 +138,9 @@ function Applications(props: { act: Act }) {
 
 function Complaints(props: { act: Act }) {
   const [complaints, setComplaints] = useState<ComplaintRow[] | null>(null);
-  const load = () => api.pending().then((r) => setComplaints(r.complaints), () => setComplaints([]));
-  useEffect(() => {
-    load();
-  }, []);
+  const load = () => api.pending().then((r) => setComplaints(r.complaints), () => setComplaints((x) => x ?? []));
+  // Новое приходит само, без перезагрузки
+  useLive(load, 15000);
   if (!complaints) return <Spinner />;
   if (!complaints.length) return <p className="text-dim">Жалоб нет.</p>;
   return (
@@ -164,7 +164,7 @@ function Complaints(props: { act: Act }) {
                 </div>
                 <button
                   className="mt-2 w-full text-[14px] font-semibold text-bad"
-                  onClick={() => confirm("Заблокировать хозяина? Все его объявления снимутся, гостям придёт отмена.") && props.act(() => api.resolveComplaint(c.id, "ban"), "Хозяин заблокирован.", load)}
+                  onClick={async () => (await ask("Заблокировать хозяина?", { text: "Все его объявления снимутся, гостям придёт отмена.", ok: "Заблокировать", danger: true })) && props.act(() => api.resolveComplaint(c.id, "ban"), "Хозяин заблокирован.", load)}
                 >
                   Заблокировать хозяина
                 </button>
@@ -179,10 +179,9 @@ function Complaints(props: { act: Act }) {
 
 function Review(props: { act: Act }) {
   const [list, setList] = useState<(Listing & { title: string; held: string[] })[] | null>(null);
-  const load = () => api.pending().then((r) => setList(r.listings), () => setList([]));
-  useEffect(() => {
-    load();
-  }, []);
+  const load = () => api.pending().then((r) => setList(r.listings), () => setList((x) => x ?? []));
+  // Новое приходит само, без перезагрузки
+  useLive(load, 15000);
   if (!list) return <Spinner />;
   return (
     <>
@@ -202,7 +201,7 @@ function Review(props: { act: Act }) {
                   <div className="text-[16px] font-semibold text-ink">{l.title}</div>
                   <Badge listing={l.status} />
                 </div>
-                {l.held.length > 0 && <p className="mt-1 font-semibold text-warn">Подозрительно: {l.held.join(", ")}</p>}
+                {l.held.length > 0 && <p className="mt-1 font-semibold text-warn">Бот отправил на проверку: {l.held.join(", ")}</p>}
                 <div className="text-dim">
                   {l.locality}
                   {l.district ? `, ${l.district}` : ""}, {l.address}
@@ -278,11 +277,12 @@ function AllListings(props: { act: Act }) {
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-3">
                   <Badge listing={l.status} />
+                  {l.status === "active" && l.botChecked && <span className="text-[12px] font-semibold text-ok">проверено ботом</span>}
                   {l.status === "active" && (
                     <button
                       className="font-semibold text-bad"
-                      onClick={() => {
-                        const note = prompt("Почему скрываете? Хозяин увидит причину.", "Нарушение правил площадки.");
+                      onClick={async () => {
+                        const note = await askText("Почему снимаете?", "Нарушение правил площадки.", { text: "Хозяин увидит причину.", ok: "Снять", danger: true });
                         if (note !== null) props.act(() => api.adminHide(l.id, note), "Объявление снято.", load);
                       }}
                     >
@@ -345,8 +345,8 @@ function People(props: { act: Act }) {
                   ) : (
                     <button
                       className="shrink-0 font-semibold text-bad"
-                      onClick={() => {
-                        const note = prompt("За что блокируете? Объявления человека снимутся, его брони отменятся.", "Обман");
+                      onClick={async () => {
+                        const note = await askText("За что блокируете?", "Обман", { text: "Объявления человека снимутся, его брони отменятся.", ok: "Заблокировать", danger: true });
                         if (note !== null) props.act(() => api.adminBlockUser(u.id, true, note), "Заблокирован.", load);
                       }}
                     >
@@ -366,12 +366,12 @@ function People(props: { act: Act }) {
 
 function Team(props: { act: Act; owner: boolean }) {
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
-  const [raw, setRaw] = useState("");
+  const [invite, setInvite] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const load = () => api.staff().then((r) => setStaff(r.staff), () => setStaff([]));
   useEffect(() => {
     load();
   }, []);
-  const phone = normalizePhone(raw);
   if (!staff) return <Spinner />;
   return (
     <>
@@ -388,7 +388,7 @@ function Team(props: { act: Act; owner: boolean }) {
             {props.owner && (
               <button
                 className="flex shrink-0 items-center gap-1 font-semibold text-bad"
-                onClick={() => confirm(`Убрать ${m.name ?? "человека"} из модераторов?`) && props.act(() => api.staffRemove(m.id), "Убран из модераторов.", load)}
+                onClick={async () => (await ask(`Убрать ${m.name ?? "человека"} из модераторов?`, { ok: "Убрать", danger: true })) && props.act(() => api.staffRemove(m.id), "Убран из модераторов.", load)}
                 aria-label="Убрать из модераторов"
               >
                 <UserMinus size={16} /> Убрать
@@ -398,26 +398,98 @@ function Team(props: { act: Act; owner: boolean }) {
         ))}
       </ul>
       {props.owner ? (
-        <section className="mt-5 card space-y-2 p-4">
-          <h2 className="font-bold text-ink">Назначить модератора</h2>
-          <p className="text-[13px] text-dim">Человек должен один раз открыть бота и оставить номер. Ему придёт сообщение, а в приложении появится вкладка «Модератор».</p>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (phone) props.act(() => api.staffAdd(phone), "Модератор назначен.", () => { setRaw(""); load(); });
-            }}
-          >
-            <input className="field min-w-0 flex-1" type="tel" inputMode="tel" placeholder="+7 900 000-00-00" value={raw} onChange={(e) => setRaw(e.target.value)} aria-label="Номер модератора" />
-            <button className="btn btn-main shrink-0" disabled={!phone}>
-              <UserPlus size={18} />
+        <section className="mt-5 card space-y-3 p-4">
+          <h2 className="font-bold text-ink">Добавить модератора</h2>
+          <p className="text-[13px] text-dim">
+            Получите код и передайте человеку. Он отправит его боту из своего MAX и станет модератором. Код одноразовый, действует сутки.
+          </p>
+          {invite ? (
+            <div className="rounded-xl border border-line bg-surface-2/60 p-3 text-center">
+              <div className="text-[13px] text-dim">Пусть отправит боту:</div>
+              <button
+                className="mt-1 text-[22px] font-bold tracking-wide text-ink tabular-nums"
+                onClick={() => navigator.clipboard?.writeText(`/join ${invite}`).then(() => setCopied(true), () => {})}
+              >
+                /join {invite}
+              </button>
+              <div className="mt-1 text-[12px] text-dim">{copied ? "Скопировано" : "Нажмите, чтобы скопировать"}</div>
+            </div>
+          ) : (
+            <button
+              className="btn btn-main w-full"
+              onClick={() =>
+                props.act(
+                  async () => {
+                    const r = await api.staffInvite();
+                    setInvite(r.code);
+                    setCopied(false);
+                  },
+                  "Код готов. Когда человек отправит его боту, вам придёт сообщение.",
+                )
+              }
+            >
+              <UserPlus size={18} /> Получить код приглашения
             </button>
-          </form>
+          )}
         </section>
       ) : (
         <p className="mt-4 text-[14px] text-dim">Назначать модераторов может только главный.</p>
       )}
     </>
+  );
+}
+
+// --- Брони: все запросы гостей и ближайшие заезды ----------------------------------------------
+
+function Bookings() {
+  const [list, setList] = useState<AdminBookingRow[] | null>(null);
+  useLive(() => api.adminBookings().then((r) => setList(r.bookings), () => setList((x) => x ?? [])), 15000);
+  if (!list) return <Spinner />;
+  if (!list.length) return <p className="text-dim">Активных броней нет.</p>;
+  return (
+    <ul className="space-y-3">
+      {list.map((b) => (
+        <li key={b.id} className="card p-4 text-[14px]">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-ink">{b.title}</div>
+              <div className="truncate text-dim">
+                {b.locality}
+                {b.address ? `, ${b.address}` : ""}
+              </div>
+            </div>
+            <Badge booking={b.status} />
+          </div>
+          <div className="mt-2 text-ink">
+            {rangeText(b.checkIn, b.checkOut)} · {guestsText(b.guests)} · <b className="tabular-nums">{rub(b.total)}</b>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[13px]">
+            <div>
+              <div className="text-dim">Гость</div>
+              <div className="text-ink">{b.guestName ?? "без имени"}</div>
+              {b.guestPhone && (
+                <a className="font-semibold text-accent" href={`tel:${b.guestPhone}`}>
+                  {phoneText(b.guestPhone)}
+                </a>
+              )}
+            </div>
+            <div>
+              <div className="text-dim">Хозяин</div>
+              <div className="text-ink">{b.ownerName ?? "без имени"}</div>
+              {b.ownerPhone && (
+                <a className="font-semibold text-accent" href={`tel:${b.ownerPhone}`}>
+                  {phoneText(b.ownerPhone)}
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="mt-2 text-[12px] text-dim">
+            Запрос {when(b.createdAt)}
+            {b.status === "requested" ? ` · хозяин ответит до ${when(b.decideBy)}` : ""}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

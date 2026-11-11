@@ -16,7 +16,9 @@ export interface VerifiedInit {
   authDate: number;
 }
 
-const MAX_AGE_SEC = 60 * 60; // документация советует не старше часа
+// Документация советует час, но мини-приложение часто держат открытым дольше: тогда каждое действие
+// получало отказ и выглядело как «выкинуло». Сутки — подпись по-прежнему нельзя подделать, а старую не переиспользуют долго
+const MAX_AGE_SEC = 24 * 60 * 60;
 
 export function verifyInitData(initData: string, botToken: string, now = Date.now()): VerifiedInit | null {
   if (!initData || !botToken) return null;

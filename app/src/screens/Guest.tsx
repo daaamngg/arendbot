@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { BedDouble, CalendarDays, ChevronDown, Flag, Heart, Home, MapPin, MessageCircle, Phone, SlidersHorizontal, Star, Users } from "lucide-react";
+import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, SlidersHorizontal, Star, Users } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { CANCEL_OPTIONS, COMPLAINT_REASONS, type ListingCard, type PublicListing } from "../../../shared/types.ts";
 import { api, errorText, type BookingView, type Me, type SearchQuery } from "../lib/api.ts";
+import { useLive } from "../lib/live.ts";
+import { ask, tell } from "../ui/dialog.tsx";
 import { haptic } from "../lib/max.ts";
 import { Badge, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
 
@@ -23,27 +25,32 @@ export function Stars(props: { value: number; count: number }) {
 }
 
 const SHORT_MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const shortDate = (d: string) => `${Number(d.slice(8, 10))} ${SHORT_MONTHS[Number(d.slice(5, 7)) - 1]}, ${WEEKDAYS[new Date(`${d}T00:00:00Z`).getUTCDay()]}`;
 
 /**
- * Дата коротко («12 ноя»), а по нажатию — обычный календарь телефона: прозрачное поле лежит поверх текста.
- * Так строка не обрезается, как у стандартного поля «дд.мм.гггг»
+ * Заезд и выезд — две отдельные плашки с подписью сверху, без стрелки между ними.
+ * По нажатию открывается обычный календарь телефона: прозрачное поле лежит поверх плашки,
+ * поэтому нет обрезанного «дд.мм.гггг» и системного значка внутри
  */
-function DateField(props: { label: string; value?: string; min: string; onChange: (v: string | undefined) => void }) {
-  const text = props.value ? `${Number(props.value.slice(8, 10))} ${SHORT_MONTHS[Number(props.value.slice(5, 7)) - 1]}` : props.label;
+function DateRange(props: { checkIn?: string; checkOut?: string; minIn: string; minOut: string; onIn: (v: string | undefined) => void; onOut: (v: string | undefined) => void }) {
+  const box = (label: string, value: string | undefined, min: string, onChange: (v: string | undefined) => void) => (
+    <label className="relative block min-w-0 flex-1 cursor-pointer rounded-xl border border-line bg-surface px-3 py-2 focus-within:border-accent">
+      <span className="block text-[12px] text-dim">{label}</span>
+      <span className={`block truncate text-[15px] ${value ? "font-semibold text-ink" : "text-dim"}`}>{value ? shortDate(value) : "Выбрать"}</span>
+      <input type="date" className="absolute inset-0 size-full cursor-pointer opacity-0" min={min} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)} aria-label={label} />
+    </label>
+  );
   return (
-    <span className="relative min-w-0 flex-1">
-      <span className={`block truncate py-1 text-[15px] ${props.value ? "font-semibold text-ink" : "text-dim"}`}>{text}</span>
-      <input
-        type="date"
-        className="absolute inset-0 size-full cursor-pointer opacity-0"
-        min={props.min}
-        value={props.value ?? ""}
-        onChange={(e) => props.onChange(e.target.value || undefined)}
-        aria-label={props.label}
-      />
-    </span>
+    <div className="flex gap-2.5">
+      {box("Заезд", props.checkIn, props.minIn, props.onIn)}
+      {box("Выезд", props.checkOut, props.minOut, props.onOut)}
+    </div>
   );
 }
+
+/** Метка попытки брони (crypto.randomUUID есть не во всех старых WebView) */
+const newKey = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).slice(0, 40);
 
 const cancelText = (days: number = 0) =>
   days === 0 ? "Бесплатная отмена до заезда" : `Бесплатная отмена не позже чем ${CANCEL_OPTIONS.find((o) => o.days === days)?.title.toLowerCase() ?? `за ${days} дн.`} до заезда`;
@@ -81,31 +88,26 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
         <label className="flex items-center gap-3 px-4 py-2.5">
           <MapPin size={18} className="shrink-0 text-dim" aria-hidden />
           <span className="w-16 shrink-0 text-[13px] text-dim">Где</span>
-          <select className="min-w-0 flex-1 bg-transparent py-1 text-[15px] font-semibold text-ink outline-none" value={q.locality ?? ""} onChange={(e) => set({ locality: e.target.value || undefined })} aria-label="Где">
-            <option value="">Самара и область</option>
-            {props.me.localities.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </select>
+          <span className="relative flex min-w-0 flex-1 items-center">
+            <select className="min-w-0 flex-1 appearance-none bg-transparent py-1 pr-6 text-[15px] font-semibold text-ink outline-none" value={q.locality ?? ""} onChange={(e) => set({ locality: e.target.value || undefined })} aria-label="Где">
+              <option value="">Самара и область</option>
+              {props.me.localities.map((l) => (
+                <option key={l}>{l}</option>
+              ))}
+            </select>
+            <ChevronDown size={16} className="pointer-events-none absolute right-0 text-dim" aria-hidden />
+          </span>
         </label>
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <CalendarDays size={18} className="shrink-0 text-dim" aria-hidden />
-          <span className="w-16 shrink-0 text-[13px] text-dim">Когда</span>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <DateField
-              label="Заезд"
-              value={q.checkIn}
-              min={today}
-              onChange={(checkIn) =>
-                // Выезд по умолчанию — на следующий день, чтобы не выбирать дважды
-                set({ checkIn, checkOut: checkIn && (!q.checkOut || q.checkOut <= checkIn) ? addDays(checkIn, 1) : q.checkOut })
-              }
-            />
-            <span className="text-dim" aria-hidden>
-              →
-            </span>
-            <DateField label="Выезд" value={q.checkOut} min={q.checkIn ? addDays(q.checkIn, 1) : today} onChange={(checkOut) => set({ checkOut })} />
-          </div>
+        <div className="px-4 py-3">
+          <DateRange
+            checkIn={q.checkIn}
+            checkOut={q.checkOut}
+            minIn={today}
+            minOut={q.checkIn ? addDays(q.checkIn, 1) : today}
+            // Выезд по умолчанию — на следующий день, чтобы не выбирать дважды
+            onIn={(checkIn) => set({ checkIn, checkOut: checkIn && (!q.checkOut || q.checkOut <= checkIn) ? addDays(checkIn, 1) : q.checkOut })}
+            onOut={(checkOut) => set({ checkOut })}
+          />
         </div>
         <div className="flex items-center gap-3 px-4 py-1.5">
           <Users size={18} className="shrink-0 text-dim" aria-hidden />
@@ -190,7 +192,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-ink">{c.title}</div>
                   <div className="truncate text-[13px] text-dim">
-                    {[c.locality, c.district].filter(Boolean).join(", ")} · {guestsUpTo(c.guests)}
+                    {[c.locality, c.address].filter(Boolean).join(", ")} · {guestsUpTo(c.guests)}
                   </div>
                 </div>
                 <div className="shrink-0 pt-0.5 text-[13px]">{c.stars != null ? <Stars value={c.stars} count={c.reviews} /> : <span className="text-dim">новое</span>}</div>
@@ -222,6 +224,11 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<BookingView | null>(null);
+  const [bookError, setBookError] = useState<string | null>(null);
+  // Метка попытки: повтор после обрыва связи не создаст вторую бронь и не скажет «вы уже отправили».
+  // Новые даты или число гостей — новая попытка
+  const [bookKey, setBookKey] = useState(newKey);
+  useEffect(() => setBookKey(newKey()), [checkIn, checkOut, guests]);
   const [fav, setFav] = useState(false);
   const [slide, setSlide] = useState(0);
 
@@ -271,12 +278,12 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
         <button
           className="mt-4 text-[14px] font-semibold text-bad"
           onClick={async () => {
-            if (!confirm("Отменить запрос?")) return;
+            if (!(await ask("Отменить запрос?", { ok: "Отменить", danger: true }))) return;
             try {
               await api.cancel(done.id);
               props.onBooked();
             } catch (e) {
-              alert(errorText(e));
+              tell("Не получилось", errorText(e));
             }
           }}
         >
@@ -293,17 +300,20 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
 
   const book = async () => {
     setBusy(true);
-    setError(null);
+    setBookError(null);
     try {
-      const r = await api.book({ id: l.id, checkIn, checkOut, guests, comment: comment.trim() });
+      const r = await api.book({ id: l.id, checkIn, checkOut, guests, comment: comment.trim(), key: bookKey });
       haptic("success");
       setDone(r.booking);
     } catch (e) {
-      setError(errorText(e));
+      // Ничего не сбрасываем: даты, гости и комментарий остаются, можно нажать «Повторить»
+      setBookError(errorText(e));
+      haptic("error");
     } finally {
       setBusy(false);
     }
   };
+  const needPhone = !props.me.user.phone || !props.me.user.consent;
 
   const tooShort = calc && calc.nights < l.minNights;
   const canBook = calc && !calc.taken && !tooShort && guests <= l.guests && !data.own;
@@ -356,8 +366,9 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
         </div>
       )}
       <div className="mt-1 flex items-center gap-1.5 text-[14px] text-dim">
-        <MapPin size={15} /> {[l.locality, l.district].filter(Boolean).join(", ")}. Точный адрес после подтверждения
+        <MapPin size={15} className="shrink-0" /> {[l.locality, l.address].filter(Boolean).join(", ")}
       </div>
+      <p className="mt-0.5 pl-[21px] text-[13px] text-dim">{l.district ? `${l.district} район. ` : ""}Номер квартиры хозяин пришлёт после подтверждения</p>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[14px] text-ink">
         <li className="flex items-center gap-1.5">
           <Users size={15} /> {guestsUpTo(l.guests)}
@@ -443,20 +454,17 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           <h2 className="flex items-center gap-2 text-[17px] font-bold text-ink">
             <CalendarDays size={18} /> Даты
           </h2>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              className="field"
-              type="date"
-              min={todaySamara()}
-              value={checkIn}
-              onChange={(e) => {
-                setCheckIn(e.target.value);
-                if (e.target.value && (!checkOut || checkOut <= e.target.value)) setCheckOut(addDays(e.target.value, Math.max(1, l.minNights)));
-              }}
-              aria-label="Заезд"
-            />
-            <input className="field" type="date" min={checkIn ? addDays(checkIn, 1) : todaySamara()} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} aria-label="Выезд" />
-          </div>
+          <DateRange
+            checkIn={checkIn || undefined}
+            checkOut={checkOut || undefined}
+            minIn={todaySamara()}
+            minOut={checkIn ? addDays(checkIn, 1) : todaySamara()}
+            onIn={(v) => {
+              setCheckIn(v ?? "");
+              if (v && (!checkOut || checkOut <= v)) setCheckOut(addDays(v, Math.max(1, l.minNights)));
+            }}
+            onOut={(v) => setCheckOut(v ?? "")}
+          />
           <div className="flex items-center justify-between">
             <span className="label mb-0">Гостей</span>
             <Stepper label="гостей" value={guests} min={1} max={l.guests} onChange={setGuests} />
@@ -464,8 +472,8 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           {calc?.taken && <p className="text-[14px] text-bad">На часть этих дат уже занято.</p>}
           {tooShort && <p className="text-[14px] text-bad">Минимум {nightsText(l.minNights)}.</p>}
           {stage === "confirm" && (
-            <>
-              {!props.me.user.phone || !props.me.user.consent ? (
+            <div id="book-step" className="space-y-3">
+              {needPhone ? (
                 <PhoneGate why="Хозяин позвонит, когда подтвердит бронь. До подтверждения номер он не видит." onDone={props.onPhone} />
               ) : (
                 <>
@@ -474,13 +482,12 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
                   </label>
                   <textarea id="cm" className="field resize-none" rows={2} maxLength={500} placeholder="Во сколько приедете, кто с вами" value={comment} onChange={(e) => setComment(e.target.value)} />
                   <p className="flex items-center gap-1.5 text-[13px] text-dim">
-                    <Phone size={14} /> Хозяин увидит номер {phoneText(props.me.user.phone)} только после подтверждения
+                    <Phone size={14} /> Хозяин увидит номер {phoneText(props.me.user.phone ?? "")} только после подтверждения
                   </p>
                 </>
               )}
-            </>
+            </div>
           )}
-          {error && <p className="text-[14px] text-bad">{error}</p>}
         </section>
       )}
 
@@ -494,14 +501,29 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
               <b className="text-[18px] text-ink tabular-nums">{rub(calc.total)}</b>
             </div>
           )}
+          {/* Ошибка отправки — здесь, у кнопки: видно причину, данные не пропали, можно повторить */}
+          {bookError && (
+            <div className="mb-2 rounded-lg bg-[#f5e1dd] px-3 py-2 text-[14px] text-bad" role="alert">
+              {bookError}
+            </div>
+          )}
           <button
             className="btn btn-main w-full"
-            disabled={!canBook || busy || (stage === "confirm" && (!props.me.user.phone || !props.me.user.consent))}
-            onClick={() => (stage === "view" ? setStage("confirm") : book())}
+            disabled={!canBook || busy || (stage === "confirm" && needPhone)}
+            onClick={() => {
+              if (stage === "view") {
+                setStage("confirm");
+                // Прокрутить к шагу с номером/комментарием, иначе он открывается за кнопкой
+                setTimeout(() => document.getElementById("book-step")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+              } else book();
+            }}
           >
-            {stage === "view" ? (calc ? "Забронировать" : "Выберите даты") : busy ? "Отправляем…" : "Отправить запрос хозяину"}
+            {busy && <LoaderCircle size={18} className="animate-spin" />}
+            {stage === "view" ? (calc ? "Забронировать" : "Выберите даты") : busy ? "Отправляем…" : needPhone ? "Сначала добавьте номер выше" : bookError ? "Повторить отправку" : "Отправить запрос хозяину"}
           </button>
-          {stage === "confirm" && <p className="mt-2 text-center text-[13px] text-dim">Оплата хозяину при заселении. Отменить можно в «Моих бронях».</p>}
+          <p className="mt-2 text-center text-[13px] text-dim">
+            {stage === "view" && needPhone ? "Для брони нужен номер телефона: попросим на следующем шаге" : stage === "confirm" ? "Оплата хозяину при заселении. Отменить можно в «Моих бронях»." : "Ничего не списываем. Хозяин подтвердит или откажет"}
+          </p>
         </Sticky>
       )}
     </>
@@ -603,28 +625,38 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
   const [favs, setFavs] = useState<ListingCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
-  const load = () => api.myBookings().then((r) => setList(r.bookings), () => setError("Не получилось загрузить."));
+  // Список броней обновляется сам: ответ хозяина появляется без перезагрузки
+  const load = () =>
+    api.myBookings().then(
+      (r) => {
+        setList(r.bookings);
+        setError(null);
+      },
+      () => setError((e) => (list ? e : "Не получилось загрузить.")),
+    );
+  useLive(load, 15000);
   useEffect(() => {
-    load();
     api.favorites().then((r) => setFavs(r.cards), () => {});
   }, []);
 
   const cancel = async (b: BookingView) => {
-    if (!confirm(b.status === "confirmed" ? "Отменить подтверждённую бронь? Хозяин получит сообщение." : "Отменить запрос?")) return;
+    if (!(await ask(b.status === "confirmed" ? "Отменить подтверждённую бронь?" : "Отменить запрос?", { text: b.status === "confirmed" ? "Хозяин получит сообщение." : undefined, ok: "Отменить", danger: true }))) return;
     try {
       await api.cancel(b.id);
       load();
     } catch (e) {
-      alert(errorText(e));
+      tell("Не получилось", errorText(e));
     }
   };
   const hide = async (b: BookingView) => {
-    if (!confirm("Убрать бронь из списка?")) return;
+    if (!(await ask("Убрать бронь из списка?", { ok: "Убрать" }))) return;
     try {
       await api.hideBooking(b.id);
+      // Сразу убираем из списка, не дожидаясь следующего обновления
+      setList((x) => x?.filter((y) => y.id !== b.id) ?? x);
       load();
     } catch (e) {
-      alert(errorText(e));
+      tell("Не получилось", errorText(e));
     }
   };
 

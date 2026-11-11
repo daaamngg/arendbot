@@ -60,12 +60,12 @@ export async function requestContact(): Promise<MaxContact | null> {
   }
 }
 
-export function haptic(kind: "tap" | "select" | "success") {
+export function haptic(kind: "tap" | "select" | "success" | "error") {
   const h = app()?.HapticFeedback;
   try {
     if (kind === "tap") h?.impactOccurred?.("light");
     else if (kind === "select") h?.selectionChanged?.();
-    else h?.notificationOccurred?.("success");
+    else h?.notificationOccurred?.(kind);
   } catch {
     /* вибро не обязательно */
   }

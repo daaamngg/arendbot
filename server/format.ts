@@ -1,4 +1,4 @@
-import { listingTitle } from "../shared/catalog.ts";
+import { fullAddress, listingTitle } from "../shared/catalog.ts";
 import { guestsText, nightsFrom, nightsText, rangeText, rub } from "../shared/dates.ts";
 import { PLACE_TYPES, type Booking, type Complaint, type Listing, type User } from "../shared/types.ts";
 import type { Button, OutMessage } from "./max-api.ts";
@@ -61,7 +61,7 @@ export function confirmedToGuest(b: Booking, l: Listing, ownerPhone: string | nu
       "Бронь подтверждена",
       `${listingTitle(l)}, ${rangeText(b.checkIn, b.checkOut)}`,
       "",
-      `Адрес: ${l.locality}, ${l.address}`,
+      `Адрес: ${fullAddress(l)}`,
       `Хозяин: ${phoneText(ownerPhone)}`,
       `Заезд с ${l.checkIn}, выезд до ${l.checkOut}`,
       `К оплате хозяину: ${rub(b.total)}${l.deposit ? `, плюс залог ${rub(l.deposit)} (вернут при выезде)` : ""}`,
@@ -98,7 +98,7 @@ export function reminder(b: Booking, l: Listing, toGuest: boolean, otherPhone: s
     text: [
       toGuest ? "Завтра заезд" : "Завтра заезжает гость",
       `${listingTitle(l)}, ${rangeText(b.checkIn, b.checkOut)}`,
-      toGuest ? `Адрес: ${l.locality}, ${l.address}. Заезд с ${l.checkIn}.` : `${guestsText(b.guests)}, ${rub(b.total)}.`,
+      toGuest ? `Адрес: ${fullAddress(l)}. Заезд с ${l.checkIn}.` : `${guestsText(b.guests)}, ${rub(b.total)}.`,
       `${toGuest ? "Хозяин" : "Гость"}: ${phoneText(otherPhone)}`,
     ].join("\n"),
   };
@@ -208,7 +208,7 @@ function moderatorBody(l: Listing, ownerPhone: string | null): OutMessage {
   return {
     text: [
       `${listingTitle(l)} (${type.toLowerCase()})`,
-      `${where(l)}, ${l.address}`,
+      `${where(l)}, ${l.address}${l.flat ? `, ${l.flat}` : ""}`,
       `${guestsText(l.guests)}, спальных мест ${l.beds}${l.floor ? `, этаж ${l.floor}` : ""}`,
       `Будни ${rub(l.priceWeekday)}, выходные ${rub(l.priceWeekend)}, ${nightsFrom(l.minNights)}${l.deposit ? `, залог ${rub(l.deposit)}` : ""}`,
       `Правила: ${rules.length ? rules.join(", ") : "без животных, детей, курения и вечеринок"}`,

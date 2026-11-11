@@ -17,6 +17,12 @@ export class ApiError extends Error {
  * Запрос к серверу. Не висит вечно: через 10 секунд обрывается (на фото — 30).
  * Если сеть мигнула или сервер на секунду недоступен — один повтор. Ошибки сервера (4xx) не повторяем
  */
+// Ключ входа отдельной админки (admin.html). В мини-приложении его нет — там вход по подписи MAX
+let adminToken: string | null = null;
+export const setAdminToken = (t: string | null) => {
+  adminToken = t;
+};
+
 async function post<T>(path: string, body: object = {}, opts: { timeout?: number } = {}): Promise<T> {
   const attempt = async () => {
     const ctl = new AbortController();
@@ -25,7 +31,7 @@ async function post<T>(path: string, body: object = {}, opts: { timeout?: number
       return await fetch(`${BASE}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, initData: initData() }),
+        body: JSON.stringify({ ...body, initData: initData(), ...(adminToken ? { adminToken } : {}) }),
         signal: ctl.signal,
       });
     } finally {
@@ -100,6 +106,25 @@ export interface HostApplicationRow {
   at: number;
 }
 
+export interface AdminBookingRow {
+  id: string;
+  listingId: string;
+  title: string;
+  locality: string;
+  address: string;
+  checkIn: string;
+  checkOut: string;
+  guests: number;
+  total: number;
+  status: BookingStatus;
+  createdAt: number;
+  decideBy: number;
+  guestName: string | null;
+  guestPhone: string | null;
+  ownerName: string | null;
+  ownerPhone: string | null;
+}
+
 export interface HostListingRow {
   id: string;
   title: string;
@@ -142,6 +167,8 @@ export interface ChatMsg {
   from: "guest" | "owner";
   text: string;
   createdAt: number;
+  /** автор удалил: текста нет, показываем «Сообщение удалено» */
+  deleted: boolean;
 }
 
 export interface AdminListing {
@@ -153,6 +180,7 @@ export interface AdminListing {
   ownerId: number;
   photo: string | null;
   checked: boolean;
+  botChecked: boolean;
   updatedAt: number;
 }
 
@@ -210,16 +238,22 @@ export const api = {
   search: (q: SearchQuery) => post<{ cards: ListingCard[] }>("/search", q),
   listing: (id: string) => post<{ listing: PublicListing; own: boolean }>("/listing", { id }),
   quote: (id: string, checkIn: string, checkOut: string) => post<{ nights?: number; total?: number; problem?: string }>("/quote", { id, checkIn, checkOut }),
-  book: (p: { id: string; checkIn: string; checkOut: string; guests: number; comment: string }) => post<{ booking: BookingView }>("/book", p),
+  // key — метка попытки: если ответ потерялся и запрос ушёл повторно, сервер вернёт ту же бронь
+  book: (p: { id: string; checkIn: string; checkOut: string; guests: number; comment: string; key: string }) => post<{ booking: BookingView }>("/book", p, { timeout: 20_000 }),
   myBookings: () => post<{ bookings: BookingView[] }>("/my/bookings"),
   cancel: (id: string) => post<{ ok: true }>("/booking/cancel", { id }),
   favorite: (id: string, on: boolean) => post<{ favorite: boolean }>("/favorite", { id, on }),
   favorites: () => post<{ cards: ListingCard[] }>("/favorites"),
   review: (bookingId: string, stars: number, text: string) => post<{ ok: true }>("/review", { bookingId, stars, text }),
   complaint: (id: string, reason: string, text: string) => post<{ ok: true }>("/complaint", { id, reason, text }),
+  adminLoginStart: (device: string) => post<{ id: string; secret: string; code: string; expiresAt: number; bot: string | null }>("/admin/login/start", { device }),
+  adminLoginCheck: (id: string, secret: string) => post<{ state: "waiting" | "asked" | "approved" | "denied" | "used" | "expired"; token?: string }>("/admin/login/check", { id, secret }),
+  adminLogout: (all = false) => post<{ ok: true }>("/admin/logout", { all }),
+  chatHide: (id: string) => post<{ ok: true }>("/chat/hide", { id }),
+  chatDelete: (id: string, messageId: string) => post<{ ok: true }>("/chat/delete", { id, messageId }),
   chatOpen: (listingId: string) => post<{ thread: ThreadView; messages: ChatMsg[] }>("/chat/open", { listingId }),
   chatThread: (id: string) => post<{ thread: ThreadView; messages: ChatMsg[] }>("/chat/thread", { id }),
-  chatSend: (id: string, text: string) => post<{ text: string; masked: boolean }>("/chat/send", { id, text }),
+  chatSend: (id: string, text: string, key: string) => post<{ text: string; masked: boolean }>("/chat/send", { id, text, key }),
   chatList: () => post<{ threads: ThreadView[] }>("/chat/list"),
 
   hostListings: () => post<{ listings: HostListingRow[] }>("/host/listings"),
@@ -232,6 +266,7 @@ export const api = {
   hideBooking: (id: string) => post<{ ok: true }>("/booking/hide", { id }),
   photosOrder: (id: string, order: number[]) => post<{ listing: Listing; missing: string[] }>("/host/photos", { id, order }),
   submit: (id: string) => post<{ listing: Listing; live: boolean }>("/host/submit", { id }),
+  deleteListing: (id: string) => post<{ ok: true }>("/host/delete", { id }),
   pause: (id: string, paused: boolean) => post<{ listing: Listing }>("/host/pause", { id, paused }),
   calendar: (id: string, close: string[], open: string[]) => post<{ closed: string[]; booked: string[] }>("/host/calendar", { id, close, open }),
   hostBookings: () => post<{ bookings: BookingView[] }>("/host/bookings"),
@@ -246,10 +281,11 @@ export const api = {
   adminUsers: (q: string) => post<{ users: AdminUser[] }>("/admin/users", { q }),
   adminBlockUser: (id: number, blocked: boolean, note?: string) => post<{ ok: true }>("/admin/user/block", { id, blocked, note }),
   staff: () => post<{ staff: StaffRow[]; owner: boolean }>("/admin/staff"),
-  staffAdd: (phone: string) => post<{ ok: true }>("/admin/staff/add", { phone }),
+  staffInvite: () => post<{ code: string; until: number }>("/admin/staff/invite"),
   staffRemove: (id: number) => post<{ ok: true }>("/admin/staff/remove", { id }),
   stats: () => post<AdminStats>("/admin/stats"),
   applications: () => post<{ applications: HostApplicationRow[] }>("/admin/applications"),
+  adminBookings: () => post<{ bookings: AdminBookingRow[] }>("/admin/bookings"),
   decideApplication: (id: number, ok: boolean, note?: string) => post<{ ok: true }>("/admin/application", { id, ok, note }),
   auditLog: () => post<{ entries: AuditRow[] }>("/admin/audit"),
 };
@@ -281,6 +317,12 @@ export function errorText(e: unknown): string {
     "bad image": "Не получилось обработать фото. Попробуйте другое.",
     "active booking": "Сначала отмените бронь, потом её можно убрать из списка.",
     "too early": "Отметить можно в день заезда или позже.",
+    "has bookings": "По этому объявлению есть подтверждённые брони. Сначала отмените их, потом удалите объявление.",
+    "bad status": "Сейчас это сделать нельзя.",
+    "bad initData": "Приложение было открыто слишком долго. Закройте его и откройте бота заново.",
+    "open from MAX": "Откройте приложение из бота в MAX.",
+    "not found": "Не найдено: возможно, уже удалено или снято.",
+    "server error": "Сервер не ответил. Попробуйте ещё раз через минуту.",
   };
   if (d?.problem && d.problem !== "busy") {
     return (

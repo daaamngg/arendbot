@@ -38,7 +38,7 @@ export async function seedDemo(store: Store, opts: { devUserId: number }) {
   await store.saveUser({ id: 500, name: "Тест-хозяин", phone: "+79270000500", consentAt: t, createdAt: t, hostStatus: "approved" });
   const demo: Omit<Listing, keyof typeof base>[] = [
     {
-      id: "demo0001", type: "flat", locality: "Самара", district: "Ленинский", address: "ул. Тестовая, 1, кв. 1",
+      id: "demo0001", type: "flat", locality: "Самара", district: "Ленинский", address: "ул. Тестовая, 1", flat: "кв. 1",
       rooms: 1, area: 36, guests: 3, beds: 2, priceWeekday: 2500, priceWeekend: 3000,
       amenities: ["Wi-Fi", "Кондиционер", "Стиральная машина", "Бельё и полотенца"],
       description: "ТЕСТОВОЕ объявление. Пять минут до набережной, рядом магазины и остановка.",

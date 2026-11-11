@@ -57,12 +57,16 @@ export function listingTitle(l: Pick<Listing, "type" | "rooms" | "area">) {
 export function missingForSubmit(l: Listing): string[] {
   const m: string[] = [];
   if (!l.locality) m.push("город");
-  if (!l.address.trim()) m.push("адрес");
+  if (!l.address.trim()) m.push("улица и дом");
   if (!(l.priceWeekday > 0) || !(l.priceWeekend > 0)) m.push("цена");
   if (!(l.guests > 0)) m.push("сколько гостей");
-  if (l.description.trim().length < 30) m.push("описание (хотя бы пара предложений)");
+  // Хватит пары слов: «Тихо, рядом парк». Длинные тексты никто не читает
+  if (l.description.trim().length < 8) m.push("описание (пара слов)");
   if (l.photos.length < 3) m.push("фото (минимум 3)");
   return m;
 }
 
 export const MAX_PHOTOS = 15;
+
+/** Полный адрес для гостя после подтверждения: город, улица и дом, квартира */
+export const fullAddress = (l: { locality: string; address: string; flat?: string }) => [l.locality, l.address, l.flat].filter((x) => x && x.trim()).join(", ");

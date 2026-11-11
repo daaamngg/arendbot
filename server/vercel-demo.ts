@@ -62,7 +62,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (body === null) return reply(400, { error: "bad json" });
     // Таймера нет — отменяем просроченные запросы и шлём напоминания при обращениях
     sweep(ctx).catch(() => {});
-    const r = await handleApi(ctx, path, body);
+    const r = await handleApi(ctx, path, body, { ip: String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress });
     reply(r.status, r.json);
   } catch (e) {
     log(`Ошибка: ${(e as Error).stack}`);

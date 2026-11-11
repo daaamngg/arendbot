@@ -36,7 +36,7 @@ export function maskContacts(s: string): { text: string; masked: boolean } {
  * Почему объявление нельзя показывать сразу, а нужно сначала проверить. Пусто — можно публиковать
  * (модератор посмотрит уже после)
  */
-export function suspicion(l: Pick<Listing, "priceWeekday" | "priceWeekend" | "description" | "address">): string[] {
+export function suspicion(l: Pick<Listing, "priceWeekday" | "priceWeekend" | "description" | "address" | "flat">): string[] {
   const r: string[] = [];
   const min = Math.min(l.priceWeekday, l.priceWeekend);
   const max = Math.max(l.priceWeekday, l.priceWeekend);
@@ -44,6 +44,6 @@ export function suspicion(l: Pick<Listing, "priceWeekday" | "priceWeekend" | "de
   if (min < 700) r.push("слишком низкая цена");
   if (max > 60_000) r.push("слишком высокая цена");
   if (max > min * 3) r.push("цена в выходные сильно отличается от будней");
-  if (hasContacts(l.description) || hasContacts(l.address)) r.push("контакты в тексте");
+  if (hasContacts(l.description) || hasContacts(l.address) || hasContacts(l.flat ?? "")) r.push("контакты в тексте");
   return r;
 }

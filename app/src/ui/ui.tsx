@@ -112,6 +112,7 @@ const LISTING_STATUS: Record<ListingStatus, [string, string]> = {
   rejected: ["Вернули на доработку", "text-bad bg-[#f5e1dd]"],
   paused: ["Снято с показа", "text-dim bg-surface-2"],
   blocked: ["Снято модератором", "text-bad bg-[#f5e1dd]"],
+  deleted: ["Удалено", "text-dim bg-surface-2"],
 };
 
 const BOOKING_STATUS: Record<BookingStatus, [string, string]> = {

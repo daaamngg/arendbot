@@ -14,7 +14,8 @@ export const PLACE_TYPES: { id: PlaceType; title: string }[] = [
  * draft — хозяин заполняет; pending — ждёт модератора; active — видно в поиске;
  * rejected — модератор вернул с причиной; paused — хозяин снял с показа; blocked — снято модератором
  */
-export type ListingStatus = "draft" | "pending" | "active" | "rejected" | "paused" | "blocked";
+/** deleted — хозяин удалил: никому не видно, но запись остаётся для истории броней и жалоб */
+export type ListingStatus = "draft" | "pending" | "active" | "rejected" | "paused" | "blocked" | "deleted";
 
 export interface Photo {
   /** ссылка на картинку MAX (i.oneme.ru) — показываем в приложении */
@@ -40,8 +41,10 @@ export interface Listing {
   /** населённый пункт: Самара, Тольятти, … */
   locality: string;
   district: string;
-  /** точный адрес — гость видит только после подтверждения брони */
+  /** улица и дом — видно всем, чтобы гость понял, подходит ли место */
   address: string;
+  /** квартира, подъезд, код домофона — гость видит только после подтверждения брони */
+  flat?: string;
   rooms: number;
   area: number | null;
   floor: number | null;
@@ -66,6 +69,10 @@ export interface Listing {
   cancelDays: number;
   /** модератор уже посмотрел текущую версию (объявление в поиске сразу, проверка — после) */
   checked?: boolean;
+  /** текущую версию одобрил бот (автопроверка без замечаний) */
+  botChecked?: boolean;
+  /** почему бот отправил объявление модератору */
+  botReasons?: string[];
   /** сумма и число оценок гостей */
   rating?: { sum: number; count: number };
   createdAt: number;
@@ -99,6 +106,31 @@ export interface StaffMember {
   addedAt: number;
 }
 
+/**
+ * Вход в отдельную админку через бота: страница показывает код, человек из команды отправляет его боту,
+ * бот спрашивает «Это вы?» — после «Да» страница получает ключ входа
+ */
+export interface AdminLogin {
+  id: string;
+  /** sha256 секрета страницы, которая начала вход: забрать ключ может только она */
+  secretHash: string;
+  code: string;
+  device: string;
+  createdAt: number;
+  expiresAt: number;
+  state: "waiting" | "asked" | "approved" | "denied" | "used";
+  /** кто из команды подтверждает */
+  uid?: number;
+}
+
+/** Вход в админку на устройстве: действует, пока не нажали «Выйти» или человека не убрали из команды */
+export interface AdminSession {
+  uid: number;
+  device: string;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
 /** Запись журнала: кто из команды что сделал — чтобы при нескольких модераторах было видно, чьё решение */
 export interface AuditEntry {
   at: number;
@@ -123,6 +155,12 @@ export interface ChatThread {
   /** когда последний раз будили сторону уведомлением в чате — чтобы не засыпать сообщениями */
   notifiedGuestAt?: number;
   notifiedOwnerAt?: number;
+  /**
+   * Когда сторона удалила переписку у себя. Старые сообщения ей больше не показываются;
+   * если собеседник напишет снова — переписка вернётся в список с новыми сообщениями
+   */
+  clearedGuestAt?: number;
+  clearedOwnerAt?: number;
 }
 
 export interface ChatMessage {
@@ -131,6 +169,13 @@ export interface ChatMessage {
   from: "guest" | "owner";
   text: string;
   createdAt: number;
+  /** метка из приложения: повторная отправка того же сообщения не создаёт дубль */
+  clientKey?: string;
+  /**
+   * Автор удалил сообщение: обеим сторонам — «Сообщение удалено». Сам текст остаётся в базе
+   * для разбора жалоб (мошенник не сотрёт «переведите на карту» после того, как гость пожаловался)
+   */
+  deletedAt?: number;
 }
 
 export interface Complaint {
@@ -186,6 +231,8 @@ export interface Booking {
   reminded?: boolean;
   /** после выезда бот попросил оценку */
   reviewAsked?: boolean;
+  /** метка попытки из приложения: повтор той же отправки возвращает ту же бронь, а не ошибку */
+  clientKey?: string;
   reviewed?: boolean;
   /** гость отменил позже срока бесплатной отмены */
   lateCancel?: boolean;
@@ -241,6 +288,8 @@ export interface ListingCard {
   title: string;
   locality: string;
   district: string;
+  /** улица и дом */
+  address: string;
   guests: number;
   rooms: number;
   area: number | null;
@@ -255,8 +304,8 @@ export interface ListingCard {
   createdAt: number;
 }
 
-/** Объявление для гостя: всё, кроме адреса и контактов */
-export type PublicListing = Omit<Listing, "address" | "ownerId" | "closed" | "moderatorNote" | "checked"> & {
+/** Объявление для гостя: всё, кроме квартиры и контактов */
+export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moderatorNote" | "checked" | "botChecked" | "botReasons"> & {
   title: string;
   /** занятые ночи на ближайшие 120 дней */
   busy: string[];

@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkRange, price, todaySamara, addDays } from "../shared/dates.ts";
-import { decideDeadline, handleApi, processUpdate, sweep, type Ctx } from "./handlers.ts";
+import { decideDeadline, handleApi, handleWebhook, processUpdate, sweep, type Ctx } from "./handlers.ts";
 import { signedInit } from "./selftest-init.ts";
 import { fileStore } from "./store.ts";
 
@@ -85,7 +85,8 @@ const form = {
   type: "flat",
   locality: "Самара",
   district: "Ленинский",
-  address: "ул. Молодогвардейская, 10, кв. 5",
+  address: "ул. Молодогвардейская, 10",
+  flat: "кв. 5",
   rooms: 1,
   area: 38,
   floor: 4,
@@ -137,7 +138,7 @@ const found = (await call("/search", GUEST, { locality: "Самара", checkIn:
 check("в поиске есть, с суммой за даты", found.length === 1 && found[0].nights === 2 && found[0].total > 0);
 check("на 4 гостей не находится (вмещает 3)", (await call("/search", GUEST, { guests: 4 })).json.cards.length === 0);
 const pub = (await call("/listing", GUEST, { id: L })).json.listing;
-check("гость не видит адрес и id хозяина", !("address" in pub) && !("ownerId" in pub));
+check("гость видит улицу и дом, но не квартиру и не id хозяина", pub.address === "ул. Молодогвардейская, 10" && !("flat" in pub) && !("ownerId" in pub));
 
 // Бронь
 check("бронь без номера — отказ", (await call("/book", GUEST, { id: L, checkIn: d1, checkOut: d3, guests: 2 })).status === 400);
@@ -217,14 +218,15 @@ await approveHost(HOST2);
   check("правило отмены «за 3 дня» сохранилось", s2.listing.cancelDays === 3);
   await call("/host/photos-request", HOST2, { id: L2 });
   await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HOST2 }, body: { text: "", attachments: [img(21), img(22), img(23)] } } });
+  const toAdminBefore = sent.filter((m) => m.to === ADMIN).length;
   const sub2 = (await call("/host/submit", HOST2, { id: L2 })).json;
   check("без подозрений — сразу в поиске", sub2.live === true && (await ctx.store.getListing(L2))?.status === "active");
   check("хозяину: «опубликовано и уже в поиске»", lastTo(HOST2)?.text.includes("уже в поиске") === true);
-  check("модератору: «уже в поиске, посмотрите» с кнопкой «Всё хорошо»", lastTo(ADMIN)?.text.startsWith("Новое объявление уже в поиске") === true);
+  check("бот проверил сам: отметка «проверено ботом», модератора не дёргаем", (await ctx.store.getListing(L2))?.botChecked === true && sent.filter((m) => m.to === ADMIN).length === toAdminBefore);
   check("сразу находится в поиске", (await call("/search", GUEST, { locality: "Самара" })).json.cards.some((c: any) => c.id === L2));
   const before = sent.length;
   await processUpdate(ctx, { update_type: "message_callback", callback: { callback_id: "c", user: { user_id: ADMIN }, payload: `mod:ok:${L2}` } });
-  check("«Всё хорошо» — проверено, хозяину лишнего не пишем", (await ctx.store.getListing(L2))?.checked === true && sent.length === before);
+  check("одобренное ботом не висит в «Проверке» и хозяину лишнего не пишем", (await ctx.store.getListing(L2))?.checked === true && sent.length === before);
 
   // Подозрительная цена — ждёт проверки, в поиск не попадает
   const HOST3 = 120;
@@ -290,7 +292,7 @@ await approveHost(HOST3);
   check("чужие фото не удалять", (await call("/host/photos", GUEST, { id: L3, order: [] })).status === 404);
   check("чужую бронь не отменить и не принять", (await call("/host/decide", GUEST2, { id: bk3, accept: false })).status === 404);
   check("чужой отзыв не оставить", (await call("/review", GUEST2, { bookingId: bk3, stars: 1 })).status === 404);
-  check("неподозрительное по чужому id в карточке без адреса", !("address" in ((await call("/listing", GUEST, { id: L3 })).json.listing ?? {})));
+  check("по чужому id в карточке нет квартиры", !("flat" in ((await call("/listing", GUEST, { id: L3 })).json.listing ?? {})));
 }
 
 // --- Переписка гостя с хозяином до брони ---------------------------------------------
@@ -298,7 +300,8 @@ await approveHost(HOST3);
   const HOST4 = 130;
   await call("/phone", HOST4, { phone: "+79270000130", consent: true });
 await approveHost(HOST4);
-  const L4 = (await call("/host/save", HOST4, { form: { ...form, address: "ул. Садовая, 7" } })).json.listing.id as string;
+  // Своё описание: одинаковый текст у разных хозяев бот отправляет модератору (это проверяется ниже)
+  const L4 = (await call("/host/save", HOST4, { form: { ...form, address: "ул. Садовая, 7", description: "Студия у Струкачёвского парка, свежий ремонт, рядом остановка, магазин и аптека. Заселение по звонку." } })).json.listing.id as string;
   await call("/host/photos-request", HOST4, { id: L4 });
   await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HOST4 }, body: { text: "", attachments: [img(41), img(42), img(43)] } } });
   await call("/host/submit", HOST4, { id: L4 });
@@ -340,7 +343,7 @@ await approveHost(HOST4);
   const HOST5 = 140;
   await call("/phone", HOST5, { phone: "+79270000140", consent: true });
 await approveHost(HOST5);
-  const L5 = (await call("/host/save", HOST5, { form: { ...form, address: "ул. Луговая, 3" } })).json.listing.id as string;
+  const L5 = (await call("/host/save", HOST5, { form: { ...form, address: "ул. Луговая, 3", description: `${form.description} ${"ул. Луговая, 3"}` } })).json.listing.id as string;
   await call("/host/photos-request", HOST5, { id: L5 });
   await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HOST5 }, body: { text: "", attachments: [img(51), img(52), img(53)] } } });
   await call("/host/submit", HOST5, { id: L5 });
@@ -363,14 +366,19 @@ await approveHost(HOST5);
   await call("/phone", MOD, { phone: "+79270000150", consent: true });
   check("первый вошедший по коду — главный", (await call("/me", ADMIN)).json.owner === true);
   check("клиент не видит команду", (await call("/admin/staff", GUEST)).status === 403);
-  check("клиент не назначает модераторов", (await call("/admin/staff/add", GUEST, { phone: "+79270000150" })).status === 403);
-  check("назначить по неизвестному номеру нельзя", (await call("/admin/staff/add", ADMIN, { phone: "+79279999999" })).json.error === "user not found");
-  const add = await call("/admin/staff/add", ADMIN, { phone: "+79270000150" });
-  check("главный назначил модератора по номеру", add.status === 200 && (await ctx.store.getAdmins()).includes(MOD));
-  check("модератору пришло сообщение с кнопкой админки", lastTo(MOD)?.text.startsWith("Вас назначили модератором") === true);
-  check("повторно назначить нельзя", (await call("/admin/staff/add", ADMIN, { phone: "+79270000150" })).status === 409);
+  check("клиент не назначает модераторов", (await call("/admin/staff/invite", GUEST)).status === 403);
+  // Злоумышленник вписал себе номер будущего модератора — по номеру больше никого не назначают, только по приглашению
+  await call("/phone", 666, { phone: "+79270000150", consent: true });
+  const inv = await call("/admin/staff/invite", ADMIN);
+  check("главный получил одноразовый код приглашения", inv.status === 200 && /^[0-9A-F]{4}-[0-9A-F]{4}$/.test(inv.json.code));
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: MOD }, body: { text: `/join ${inv.json.code.toLowerCase()}` } } });
+  check("по коду из своего MAX человек стал модератором", (await ctx.store.getAdmins()).includes(MOD) && !(await ctx.store.getAdmins()).includes(666));
+  check("модератору пришло сообщение с кнопкой админки", lastTo(MOD)?.text.startsWith("Готово: вы модератор") === true);
+  check("главному сообщили, кто принял приглашение", lastTo(ADMIN)?.text.includes("принял приглашение") === true);
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: 666 }, body: { text: `/join ${inv.json.code}` } } });
+  check("код одноразовый: второй раз не сработал", !(await ctx.store.getAdmins()).includes(666) && lastTo(666)?.text.startsWith("Приглашение не подходит") === true);
   check("модератор видит админку, но не главный", (await call("/me", MOD)).json.admin === true && (await call("/me", MOD)).json.owner === false);
-  check("модератор не назначает других", (await call("/admin/staff/add", MOD, { phone: "+79270000200" })).status === 403);
+  check("модератор не приглашает других", (await call("/admin/staff/invite", MOD)).status === 403);
   check("модератор не снимает главного", (await call("/admin/staff/remove", MOD, { id: ADMIN })).status === 403);
   check("последнего главного не снять", (await call("/admin/staff/remove", ADMIN, { id: ADMIN })).json.error === "last owner");
 
@@ -378,14 +386,14 @@ await approveHost(HOST5);
   const HOST6 = 160;
   await call("/phone", HOST6, { phone: "+79270000160", consent: true });
 await approveHost(HOST6);
-  const L6 = (await call("/host/save", HOST6, { form: { ...form, address: "ул. Полевая, 9" } })).json.listing.id as string;
+  const L6 = (await call("/host/save", HOST6, { form: { ...form, address: "ул. Полевая, 9", description: `${form.description} ${"ул. Полевая, 9"}`, priceWeekday: 500, priceWeekend: 600 } })).json.listing.id as string;
   await call("/host/photos-request", HOST6, { id: L6 });
   await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HOST6 }, body: { text: "", attachments: [img(61), img(62), img(63)] } } });
   await call("/host/submit", HOST6, { id: L6 });
-  check("модератору тоже пришло новое объявление", lastTo(MOD)?.text.includes("уже в поиске") === true);
+  check("подозрительное: бот отправил модератору с причиной", lastTo(MOD)?.text.includes("ждёт проверки (слишком низкая цена") === true);
   await call("/admin/moderate", MOD, { id: L6, ok: false, reason: "photos" });
   const log = (await call("/admin/audit", ADMIN)).json.entries;
-  check("в журнале: модератор скрыл объявление", log[0]?.by === MOD && log[0]?.action === "скрыл объявление" && log[0]?.byName === "U150");
+  check("в журнале: модератор отклонил объявление", log[0]?.by === MOD && log[0]?.action === "отклонил объявление" && log[0]?.byName === "U150");
   await call("/admin/restore", MOD, { id: L6 });
   check("модератор вернул объявление в поиск", (await ctx.store.getListing(L6))?.status === "active");
 
@@ -426,7 +434,7 @@ await approveHost(HOST6);
   check("не модератор не примет заявку", (await call("/me", NEWBIE)).json.host === "pending");
   await processUpdate(ctx, { update_type: "message_callback", callback: { callback_id: "c", user: { user_id: ADMIN }, payload: `ha:ok:${NEWBIE}` } });
   check("модератор принял — можно размещать", (await call("/me", NEWBIE)).json.host === "approved" && lastTo(NEWBIE)?.text.startsWith("Заявка одобрена") === true);
-  const L7 = (await call("/host/save", NEWBIE, { form: { ...form, address: "ул. Новая, 1" } })).json.listing?.id as string;
+  const L7 = (await call("/host/save", NEWBIE, { form: { ...form, address: "ул. Новая, 1", description: `${form.description} ${"ул. Новая, 1"}` } })).json.listing?.id as string;
   check("после одобрения черновик создаётся", !!L7);
 
   // Фото прямо из приложения
@@ -457,7 +465,7 @@ await approveHost(HOST6);
   await approveHost(HG);
   const actives = [];
   for (const n of [1, 2, 3, 4]) {
-    const id = (await call("/host/save", HG, { form: { ...form, address: `ул. Лимитная, ${n}` } })).json.listing.id as string;
+    const id = (await call("/host/save", HG, { form: { ...form, address: `ул. Лимитная, ${n}`, description: `${form.description} Лимитная ${n}` } })).json.listing.id as string;
     await call("/host/photos-request", HG, { id });
     await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HG }, body: { text: "", attachments: [img(70 + n * 3), img(71 + n * 3), img(72 + n * 3)] } } });
     await call("/host/submit", HG, { id });
@@ -498,6 +506,197 @@ await approveHost(HOST6);
   await call("/booking/cancel", G, { id: mine[0].id });
   await call("/booking/hide", G, { id: mine[0].id });
   check("отменённая бронь убрана из списка", !(await call("/my/bookings", G)).json.bookings.some((b: any) => b.id === mine[0].id));
+}
+
+// --- Повтор отправки: связь мигнула, приложение отправило ещё раз -----------------------
+{
+  const G3 = 182;
+  await call("/phone", G3, { phone: "+79270000182", consent: true });
+  const target = (await ctx.store.listListings({ status: ["active"] })).find((l) => l.ownerId !== G3)!;
+  const dIn = addDays(todaySamara(clock), 120);
+  const p = { id: target.id, checkIn: dIn, checkOut: addDays(dIn, 1), guests: 1, key: "try-1" };
+  const toOwner = () => sent.filter((m) => m.to === target.ownerId).length;
+  const before = toOwner();
+  const a = await call("/book", G3, p);
+  const b = await call("/book", G3, p);
+  check("повтор брони с той же меткой — та же бронь, а не ошибка", a.status === 200 && b.status === 200 && a.json.booking.id === b.json.booking.id);
+  check("хозяину ушёл один запрос, а не два", toOwner() === before + 1);
+  check("новая попытка на то же жильё — «уже отправили»", (await call("/book", G3, { ...p, key: "try-2" })).json.error === "already requested");
+  const th = (await call("/chat/open", G3, { listingId: target.id })).json.thread.id as string;
+  await call("/chat/send", G3, { id: th, text: "Здравствуйте, парковка есть?", key: "msg-1" });
+  await call("/chat/send", G3, { id: th, text: "Здравствуйте, парковка есть?", key: "msg-1" });
+  const msgs = (await call("/chat/thread", G3, { id: th })).json.messages;
+  check("повтор сообщения с той же меткой — без дубля", msgs.filter((m: any) => m.text === "Здравствуйте, парковка есть?").length === 1);
+}
+
+// --- Отдельная админка: вход кодом через бота ---------------------------------------------
+{
+  const api = async (path: string, body: object = {}) => (await handleApi(ctx, path, body)) as { status: number; json: any };
+  const say = (uid: number, text: string) => processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: uid }, body: { text } } });
+  const press = (uid: number, payload: string) => processUpdate(ctx, { update_type: "message_callback", callback: { callback_id: "c", user: { user_id: uid }, payload } });
+  const check1 = (l: any) => api("/admin/login/check", { id: l.id, secret: l.secret });
+
+  const s1 = (await api("/admin/login/start", { device: "Windows, Chrome" })).json;
+  check("админка: код из 6 цифр", /^\d{6}$/.test(s1.code));
+  check("админка: до подтверждения ключа нет", (await check1(s1)).json.state === "waiting");
+  await say(GUEST, s1.code);
+  check("админка: не из команды — код не принят", lastTo(GUEST)?.text.startsWith("Код не подходит") === true);
+  await say(ADMIN, `/login ${s1.code}`);
+  const ask = lastTo(ADMIN);
+  check("админка: бот спросил «Это вы?» с устройством и кнопками", !!ask?.text.includes("Windows, Chrome") && !!ask?.buttons.includes(`al:y:${s1.id}`));
+  check("админка: с чужим секретом ключ не получить", (await api("/admin/login/check", { id: s1.id, secret: "чужой" })).json.state === "expired");
+  await press(GUEST, `al:y:${s1.id}`);
+  check("админка: «Да» не из команды не срабатывает", (await check1(s1)).json.state === "asked");
+  await press(ADMIN, `al:y:${s1.id}`);
+  const got = (await check1(s1)).json;
+  check("админка: после «Да» страница получила ключ", got.state === "approved" && typeof got.token === "string");
+  check("админка: ключ выдаётся один раз", (await check1(s1)).json.token === undefined);
+  const tk = got.token as string;
+  check("админка: по ключу открывается", (await api("/admin/stats", { adminToken: tk })).status === 200);
+  check("админка: по ключу видно, что это главный", (await api("/me", { adminToken: tk })).json.owner === true);
+  check("админка: ключом нельзя бронировать или писать", (await api("/book", { adminToken: tk, id: "x" })).status === 403);
+  check("админка: выдуманный ключ — отказ", (await api("/admin/stats", { adminToken: "nope" })).status === 401);
+  check("админка: заявки хозяев и брони видны", (await api("/admin/applications", { adminToken: tk })).status === 200 && (await api("/admin/bookings", { adminToken: tk })).json.bookings.length > 0);
+  check("админка: брони не видны гостю", (await call("/admin/bookings", GUEST)).status === 403);
+
+  const s2 = (await api("/admin/login/start", { device: "Android, MAX" })).json;
+  await say(ADMIN, s2.code);
+  await press(ADMIN, `al:n:${s2.id}`);
+  check("админка: «Нет» в боте — вход отменён", (await check1(s2)).json.state === "denied");
+
+  const s3 = (await api("/admin/login/start", { device: "Mac, Safari" })).json;
+  clock += 6 * 60_000;
+  await say(ADMIN, s3.code);
+  check("админка: через 5 минут код устарел", lastTo(ADMIN)?.text.startsWith("Код не подходит") === true);
+
+  // Модератора убрали из команды — его ключ сразу перестаёт работать
+  const M2 = 155;
+  await call("/phone", M2, { phone: "+79270000155", consent: true });
+  await ctx.store.saveStaff([...(await ctx.store.getStaff()), { id: M2, role: "moderator", addedBy: ADMIN, addedAt: clock }]);
+  const s4 = (await api("/admin/login/start", { device: "Windows, Edge" })).json;
+  await say(M2, s4.code);
+  await press(M2, `al:y:${s4.id}`);
+  const tk2 = (await check1(s4)).json.token as string;
+  check("админка: модератор вошёл", (await api("/admin/stats", { adminToken: tk2 })).status === 200);
+  await ctx.store.saveStaff((await ctx.store.getStaff()).filter((x) => x.id !== M2));
+  check("админка: убрали из команды — ключ не работает", (await api("/admin/stats", { adminToken: tk2 })).status === 401);
+
+  await say(ADMIN, "/logout_all");
+  check("админка: /logout_all — вход закрыт на всех устройствах", (await api("/admin/stats", { adminToken: tk })).status === 401);
+}
+
+// --- Автопроверка ботом ------------------------------------------------------------------
+{
+  const H7 = 171;
+  await call("/phone", H7, { phone: "+79270000171", consent: true });
+  await approveHost(H7);
+  const submit = async (f: object, n: number) => {
+    const id = (await call("/host/save", H7, { form: { ...form, ...f } })).json.listing.id as string;
+    await call("/host/photos-request", H7, { id });
+    await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: H7 }, body: { text: "", attachments: [img(200 + n * 3), img(201 + n * 3), img(202 + n * 3)] } } });
+    await call("/host/submit", H7, { id });
+    return (await ctx.store.getListing(id))!;
+  };
+  const prepay = await submit({ address: "ул. Победы, 5", description: "Уютная квартира в центре, всё есть для жизни. Бронь только по предоплате, пишите." }, 1);
+  check("автопроверка: просят предоплату — к модератору", prepay.status === "pending" && !!prepay.botReasons?.some((r) => r.includes("предоплату")));
+  const copy = await submit({ address: "ул. Победы, 7" }, 2);
+  check("автопроверка: описание как у чужого объявления — к модератору", copy.status === "pending" && !!copy.botReasons?.includes("описание совпадает с чужим объявлением"));
+  const noHouse = await submit({ address: "ул. Победы", description: "Светлая однушка на Победы, рядом метро и парк, новая мебель, быстрый интернет." }, 3);
+  check("автопроверка: без номера дома — к модератору", noHouse.status === "pending" && !!noHouse.botReasons?.includes("в адресе нет номера дома"));
+  const clean = await submit({ address: "ул. Победы, 11", description: "Однушка на Победы, 11: тихий двор, рядом метро и парк, новая мебель, быстрый интернет." }, 4);
+  check("автопроверка: всё чисто — сразу в поиске с отметкой бота", clean.status === "active" && clean.botChecked === true && clean.checked === true);
+  const pending = (await call("/admin/pending", ADMIN)).json.listings;
+  check("автопроверка: модератор видит причины бота", pending.some((l: any) => l.id === prepay.id && l.held.length > 0));
+  check("автопроверка: в журнале «Бот»", (await call("/admin/audit", ADMIN)).json.entries.some((e: any) => e.byName === "Бот"));
+}
+
+// --- Удаление: объявление, переписка, сообщение ------------------------------------------
+{
+  const H8 = 172;
+  const G8 = 183;
+  await call("/phone", H8, { phone: "+79270000172", consent: true });
+  await call("/phone", G8, { phone: "+79270000183", consent: true });
+  await approveHost(H8);
+  const mk = async (addr: string, n: number) => {
+    const id = (await call("/host/save", H8, { form: { ...form, address: addr, description: `Квартира ${addr}, тихо и чисто` } })).json.listing.id as string;
+    await call("/host/photos-request", H8, { id });
+    await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: H8 }, body: { text: "", attachments: [img(300 + n * 3), img(301 + n * 3), img(302 + n * 3)] } } });
+    await call("/host/submit", H8, { id });
+    return id;
+  };
+  const LA = await mk("ул. Удалённая, 1", 1);
+  const LB = await mk("ул. Удалённая, 2", 2);
+  check("короткое описание из пары слов — можно публиковать", (await ctx.store.getListing(LA))?.status === "active");
+
+  // Ждущий запрос при удалении отклоняется, гостю приходит сообщение
+  const d = addDays(todaySamara(clock), 30);
+  const req = (await call("/book", G8, { id: LA, checkIn: d, checkOut: addDays(d, 1), guests: 1 })).json.booking.id as string;
+  check("чужое объявление не удалить", (await call("/host/delete", G8, { id: LA })).status === 404);
+  check("своё объявление удалено", (await call("/host/delete", H8, { id: LA })).status === 200 && (await ctx.store.getListing(LA))?.status === "deleted");
+  check("ждущий запрос отклонился сам", (await ctx.store.getBooking(req))?.status === "declined");
+  check("удалённого нет в поиске, в карточке и у хозяина", !(await call("/search", G8, {})).json.cards.some((c: any) => c.id === LA) && (await call("/listing", G8, { id: LA })).status === 404 && !(await call("/host/listings", H8)).json.listings.some((l: any) => l.id === LA));
+
+  // С подтверждённой будущей бронью удалить нельзя
+  const conf = (await call("/book", G8, { id: LB, checkIn: d, checkOut: addDays(d, 2), guests: 1 })).json.booking.id as string;
+  await call("/host/decide", H8, { id: conf, accept: true });
+  check("с подтверждённой бронью удалить нельзя — сначала отменить", (await call("/host/delete", H8, { id: LB })).json.error === "has bookings");
+
+  // Переписка
+  const th = (await call("/chat/open", G8, { listingId: LB })).json.thread.id as string;
+  await call("/chat/send", G8, { id: th, text: "Первое" });
+  await call("/chat/send", G8, { id: th, text: "Переведите на карту 4276" });
+  let msgs = (await call("/chat/thread", G8, { id: th })).json.messages;
+  const mine = msgs[msgs.length - 1].id as string;
+  check("чужое сообщение удалить нельзя", (await call("/chat/delete", H8, { id: th, messageId: mine })).status === 404);
+  check("своё сообщение удалено", (await call("/chat/delete", G8, { id: th, messageId: mine })).status === 200);
+  msgs = (await call("/chat/thread", H8, { id: th })).json.messages;
+  const gone = msgs.find((m: any) => m.id === mine);
+  check("у собеседника — «удалено», без текста", gone?.deleted === true && gone?.text === "");
+  check("текст остался в базе для разбора жалоб", (await ctx.store.listChatMessages(th)).some((m) => m.id === mine && m.text.length > 0 && m.deletedAt));
+  check("в списке переписок последняя строка — «Сообщение удалено»", (await call("/chat/list", H8)).json.threads.find((x: any) => x.id === th)?.lastText === "Сообщение удалено");
+
+  check("чужую переписку не удалить", (await call("/chat/hide", GUEST, { id: th })).status === 404);
+  await call("/chat/hide", G8, { id: th });
+  check("удалённая переписка пропала из списка у гостя", !(await call("/chat/list", G8)).json.threads.some((x: any) => x.id === th));
+  check("а у хозяина осталась", (await call("/chat/list", H8)).json.threads.some((x: any) => x.id === th));
+  clock += 1000;
+  await call("/chat/send", H8, { id: th, text: "Здравствуйте!" });
+  const back = (await call("/chat/thread", G8, { id: th })).json.messages;
+  check("хозяин написал снова — переписка вернулась только с новым", (await call("/chat/list", G8)).json.threads.some((x: any) => x.id === th) && back.length === 1 && back[0].text === "Здравствуйте!");
+}
+
+// --- Защита: типовые атаки на API и бота -------------------------------------------------
+{
+  const api = async (path: string, body: object = {}, ip = "1.2.3.4") => (await handleApi(ctx, path, body, { ip })) as { status: number; json: any };
+  // Служебные имена JavaScript вместо id не находят служебные объекты
+  for (const id of ["__proto__", "constructor", "toString"]) {
+    check(`id «${id}» — просто «не найдено»`, (await call("/listing", ADMIN, { id })).status === 404 && (await call("/book", GUEST, { id, checkIn: "2026-12-01", checkOut: "2026-12-02", guests: 1 })).status === 404);
+  }
+  // Без подписи MAX ничего нельзя (в бою allowBrowser выключен)
+  check("без подписи MAX — отказ", (await api("/me")).status === 401 && (await api("/admin/stats")).status === 401);
+  check("поддельная подпись MAX — отказ", (await api("/me", { initData: signedInit("чужой-токен", ADMIN, "Admin") })).status === 401);
+  // Лишние поля в анкете (mass assignment) игнорируются: статус, хозяин, отметка проверки
+  const HX = 173;
+  await call("/phone", HX, { phone: "+79270000173", consent: true });
+  await approveHost(HX);
+  const sv = (await call("/host/save", HX, { form: { ...form, address: "ул. Атакующая, 1", status: "active", ownerId: ADMIN, checked: true, botChecked: true, id: "evil" } })).json.listing;
+  check("через анкету не сделать себя проверенным, чужим или активным", sv.status === "draft" && sv.ownerId === HX && !sv.checked && !sv.botChecked && sv.id !== "evil");
+  // Вход в админку: один адрес не может выбрать все коды и закрыть вход команде
+  let blocked = 0;
+  for (let i = 0; i < 35; i++) if ((await api("/admin/login/start", { device: "x" }, "6.6.6.6")).status === 429) blocked++;
+  check("вход в админку: один адрес ограничен (30 в час)", blocked === 5);
+  check("а с другого адреса вход работает", (await api("/admin/login/start", { device: "x" }, "7.7.7.7")).status === 200);
+  // Код главного не перебрать через бота
+  const before = (await ctx.store.getStaff()).length;
+  for (let i = 0; i < 8; i++) await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: 777 }, body: { text: `/admin guess${i}` } } });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: 777 }, body: { text: "/admin code1" } } });
+  check("код главного: после 5 попыток даже верный не принимается", (await ctx.store.getStaff()).length === before);
+  check("неверные попытки видны в журнале", (await call("/admin/audit", ADMIN)).json.entries.some((e: any) => e.action === "неверный код главного"));
+  // Ключом админки нельзя действовать от имени человека
+  check("чужой ключ админки — отказ даже на /me", (await api("/me", { adminToken: "a".repeat(43) })).status === 401);
+  // Вебхук бота без секрета не принимает события (иначе можно было бы «нажать кнопку» от имени главного)
+  check("вебхук без секрета — отказ", (await handleWebhook(ctx, undefined, { update_type: "message_callback", callback: { user: { user_id: ADMIN }, payload: "al:y:x" } })).status === 401);
+  check("вебхук с неверным секретом — отказ", (await handleWebhook(ctx, "wrong", {})).status === 401);
 }
 
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");

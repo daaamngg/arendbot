@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Me, type SearchQuery } from "./lib/api.ts";
-import { bindBackButton, startParam } from "./lib/max.ts";
-import { AdminScreen } from "./screens/Admin.tsx";
+import { useLive } from "./lib/live.ts";
+import { bindBackButton, openExternal, startParam } from "./lib/max.ts";
 import { ChatScreen } from "./screens/Chat.tsx";
 import { ListingScreen, SearchScreen, TripsScreen } from "./screens/Guest.tsx";
 import { HostCalendar, HostForm, HostHome } from "./screens/Host.tsx";
 import { Shell, Spinner, type Tab } from "./ui/ui.tsx";
+import { DialogHost } from "./ui/dialog.tsx";
 
 // Навигация: вкладка + стек вложенных экранов. «Назад» MAX снимает верхний экран
 type Screen =
@@ -18,7 +19,7 @@ const TITLES: Record<Screen["name"], string> = { listing: "Жильё", edit: "�
 
 /** Параметр ссылки из бота: host, admin, chat_<id> (кнопка «Открыть переписку» в уведомлении) */
 const sp = startParam();
-const initialTab: Tab = sp === "host" ? "host" : sp === "admin" ? "admin" : sp.startsWith("chat_") ? "trips" : "search";
+const initialTab: Tab = sp === "host" ? "host" : sp.startsWith("chat_") ? "trips" : "search";
 const initialStack: Screen[] = sp.startsWith("chat_") ? [{ name: "chat", id: sp.slice(5) }] : [];
 
 export default function App() {
@@ -32,6 +33,8 @@ export default function App() {
   useEffect(() => {
     refreshMe();
   }, [refreshMe]);
+  // Значок непрочитанных и статус заявки хозяина обновляются сами (тихо, без экрана ошибки)
+  useLive(() => (me ? api.me().then(setMe) : undefined), 30000, [!!me]);
 
   const push = (s: Screen) => {
     setStack((st) => [...st, s]);
@@ -104,14 +107,14 @@ export default function App() {
     content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
-  } else {
-    content = me.admin ? <AdminScreen owner={me.owner} /> : null;
   }
 
   return (
     <Shell
       tab={tab}
       onTab={(t) => {
+        // Админка — отдельное приложение: открываем её страницу (в MAX — во встроенном браузере)
+        if (t === "admin") return openExternal("admin.html");
         setTab(t);
         setStack([]);
         window.scrollTo({ top: 0 });
@@ -124,6 +127,7 @@ export default function App() {
       title={top ? TITLES[top.name] : undefined}
     >
       {content}
+      <DialogHost />
     </Shell>
   );
 }

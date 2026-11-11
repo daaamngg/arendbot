@@ -42,6 +42,8 @@ export interface Store {
   listThreads(userId: number): Promise<ChatThread[]>;
   addChatMessage(m: ChatMessage): Promise<void>;
   listChatMessages(threadId: string, limit?: number): Promise<ChatMessage[]>;
+  /** пометить сообщение удалённым; возвращает его (или undefined, если нет такого) */
+  markChatMessageDeleted(threadId: string, id: string, at: number): Promise<ChatMessage | undefined>;
   getReplyTarget(mid: string): Promise<ReplyTarget | undefined>;
   setReplyTarget(mid: string, t: ReplyTarget): Promise<void>;
 
@@ -73,6 +75,11 @@ export interface Store {
   addMessageId(key: string, mid: string): Promise<void>;
   /** было ли событие за последние ttlMs (и отметить его) — от двойных приветствий */
   seenRecently(key: string, ttlMs: number): Promise<boolean>;
+
+  /** мелкие записи по ключу: входы в админку (login:…, code:…) и ключи устройств (sess:…). undefined — удалить */
+  kvGet<T>(key: string): Promise<T | undefined>;
+  kvSet(key: string, value: unknown): Promise<void>;
+  kvList<T>(prefix: string): Promise<[string, T][]>;
 }
 
 interface Db {
@@ -90,14 +97,18 @@ interface Db {
   admins?: number[];
   messages: Record<string, string[]>;
   marks: Record<string, number>;
+  kv: Record<string, unknown>;
 }
+
+/** Только свои записи: getListing("__proto__") не должен вернуть служебный объект JavaScript */
+const own = <T>(rec: Record<string, T>, id: string | number): T | undefined => (Object.hasOwn(rec, String(id)) ? rec[String(id)] : undefined);
 
 export function fileStore(path: string): Store {
   let db: Db;
   try {
     db = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    db = { users: {}, listings: {}, bookings: {}, reviews: {}, complaints: {}, threads: {}, chat: {}, replies: {}, staff: [], audit: [], messages: {}, marks: {} };
+    db = { users: {}, listings: {}, bookings: {}, reviews: {}, complaints: {}, threads: {}, chat: {}, replies: {}, staff: [], audit: [], messages: {}, marks: {}, kv: {} };
   }
   // База от прошлой версии — без новых разделов и полей
   db.reviews ??= {};
@@ -107,6 +118,7 @@ export function fileStore(path: string): Store {
   db.replies ??= {};
   for (const l of Object.values(db.listings)) l.cancelDays ??= 0;
   db.audit ??= [];
+  db.kv ??= {};
   // Админы из старой версии становятся главными (это Сергей и Арслан, вошедшие по коду)
   db.staff ??= (db.admins ?? []).map((id) => ({ id, role: "owner" as const, addedBy: null, addedAt: Date.now() }));
   delete db.admins;
@@ -120,14 +132,14 @@ export function fileStore(path: string): Store {
 
   return {
     async getUser(id) {
-      return db.users[id];
+      return own(db.users, id);
     },
     async saveUser(u) {
       db.users[u.id] = u;
       flush();
     },
     async getListing(id) {
-      return db.listings[id];
+      return own(db.listings, id);
     },
     async saveListing(l) {
       db.listings[l.id] = l;
@@ -139,7 +151,7 @@ export function fileStore(path: string): Store {
         .sort((a, b) => b.updatedAt - a.updatedAt);
     },
     async getBooking(id) {
-      return db.bookings[id];
+      return own(db.bookings, id);
     },
     async saveBooking(b) {
       db.bookings[b.id] = b;
@@ -183,7 +195,7 @@ export function fileStore(path: string): Store {
         .sort((a, b) => b.createdAt - a.createdAt);
     },
     async getThread(id) {
-      return db.threads[id];
+      return own(db.threads, id);
     },
     async findThread(listingId, guestId) {
       return Object.values(db.threads).find((t) => t.listingId === listingId && t.guestId === guestId);
@@ -203,6 +215,13 @@ export function fileStore(path: string): Store {
     },
     async listChatMessages(threadId, limit = 200) {
       return (db.chat[threadId] ?? []).slice(-limit);
+    },
+    async markChatMessageDeleted(threadId, id, at) {
+      const m = (db.chat[threadId] ?? []).find((x) => x.id === id);
+      if (!m) return undefined;
+      m.deletedAt ??= at;
+      flush();
+      return m;
     },
     async getReplyTarget(mid) {
       return db.replies[mid];
@@ -275,6 +294,17 @@ export function fileStore(path: string): Store {
       db.marks[key] = Date.now();
       flush();
       return false;
+    },
+    async kvGet<T>(key: string) {
+      return db.kv[key] as T | undefined;
+    },
+    async kvSet(key, value) {
+      if (value === undefined) delete db.kv[key];
+      else db.kv[key] = value;
+      flush();
+    },
+    async kvList<T>(prefix: string) {
+      return Object.entries(db.kv).filter(([k]) => k.startsWith(prefix)) as [string, T][];
     },
   };
 }

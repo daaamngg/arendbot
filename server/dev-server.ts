@@ -22,6 +22,7 @@ const config: Config = {
   botUsername: env.BOT_USERNAME,
   decideHours: Number(env.DECIDE_HOURS ?? 3),
   moderation: env.MODERATION === "pre" ? "pre" : "post",
+  adminUrl: env.ADMIN_URL ?? "http://localhost:5197/admin.html",
 };
 const log = (s: string) => console.log(`[${new Date().toLocaleTimeString("ru-RU")}] ${s}`);
 const ctx: Ctx = {
@@ -71,7 +72,7 @@ createServer(async (req, res) => {
       return reply(r.status, r.json);
     }
     if (url.pathname.startsWith("/api/")) {
-      const r = await handleApi(ctx, url.pathname.slice(4), body);
+      const r = await handleApi(ctx, url.pathname.slice(4), body, { ip: req.socket.remoteAddress });
       if (r.status >= 400) log(`${url.pathname} → ${r.status} ${JSON.stringify(r.json)}`);
       return reply(r.status, r.json);
     }

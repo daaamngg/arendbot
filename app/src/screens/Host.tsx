@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Camera, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Camera, ChevronDown, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { MAX_PHOTOS, listingTitle } from "../../../shared/catalog.ts";
 import { addDays, guestsText, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { hasContacts } from "../../../shared/trust.ts";
 import { CANCEL_OPTIONS, PLACE_TYPES, type Listing } from "../../../shared/types.ts";
+import { useLive } from "../lib/live.ts";
+import { ask, askText, tell } from "../ui/dialog.tsx";
 import { api, errorText, type BookingView, type HostListingRow, type Me } from "../lib/api.ts";
 import { haptic } from "../lib/max.ts";
 import { Badge, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
@@ -14,11 +16,13 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
   const [rows, setRows] = useState<HostListingRow[] | null>(null);
   const [bookings, setBookings] = useState<BookingView[]>([]);
   const [note, setNote] = useState<string | null>(null);
-  const load = () => {
-    api.hostListings().then((r) => setRows(r.listings), () => setRows([]));
-    api.hostBookings().then((r) => setBookings(r.bookings), () => {});
-  };
-  useEffect(load, []);
+  const load = () =>
+    Promise.all([
+      api.hostListings().then((r) => setRows(r.listings), () => setRows((x) => x ?? [])),
+      api.hostBookings().then((r) => setBookings(r.bookings), () => {}),
+    ]);
+  // Новые запросы гостей и статус объявлений приходят сами, без перезагрузки
+  useLive(load, 15000);
 
   if (!props.me.user.phone || !props.me.user.consent) {
     return (
@@ -33,7 +37,7 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
   if (!rows) return <Spinner />;
 
   const noshow = async (b: BookingView) => {
-    if (!confirm("Отметить, что гость не приехал? Бронь закроется, гость получит предупреждение.")) return;
+    if (!(await ask("Гость не приехал?", { text: "Бронь закроется, гость получит предупреждение.", ok: "Да, не приехал", danger: true }))) return;
     try {
       await api.noshow(b.id);
       setNote("Отмечено. После двух таких случаев гость больше не сможет бронировать.");
@@ -261,8 +265,11 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
   const [draftNote, setDraftNote] = useState<string | null>(null);
   // Первое заполнение формы (загрузка с сервера) — не правка человека, черновик из-за него не сохраняем
   const touched = useRef(false);
+  const createdId = useRef<string | null>(null);
 
   useEffect(() => {
+    // Этот id мы сами только что получили при автосохранении — форма уже актуальна, не перезагружаем
+    if (props.id && props.id === createdId.current) return;
     if (!props.id) {
       setForm({ type: "flat", locality: "Самара", rooms: 1, guests: 2, beds: 1, minNights: 1, cancelDays: 0, checkIn: "14:00", checkOut: "12:00", rules: { pets: false, smoking: false, kids: true, parties: false }, amenities: [] });
       return;
@@ -290,6 +297,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
         setL(r.listing);
         setMissing(r.missing);
         if (!id) {
+          createdId.current = r.listing.id;
           setId(r.listing.id);
           props.onSaved(r.listing.id);
         }
@@ -309,6 +317,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
       setL(r.listing);
       setMissing(r.missing);
       if (!id) {
+        createdId.current = r.listing.id;
         setId(r.listing.id);
         props.onSaved(r.listing.id);
       }
@@ -423,34 +432,44 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
         </Group>
 
         <Group title="Жильё">
-          <div className="flex flex-wrap gap-2 px-4 py-3">
+          <div className="grid grid-cols-4 gap-1 p-2" role="radiogroup" aria-label="Тип жилья">
             {PLACE_TYPES.map((t) => (
-              <button key={t.id} type="button" className="chip" aria-pressed={form.type === t.id} onClick={() => set({ type: t.id })}>
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={form.type === t.id}
+                className={`h-10 rounded-lg text-[14px] font-semibold ${form.type === t.id ? "bg-accent-soft text-accent" : "text-dim"}`}
+                onClick={() => set({ type: t.id })}
+              >
                 {t.title}
               </button>
             ))}
           </div>
           <Row label="Город">
-            <select className="row-input" value={form.locality} onChange={(e) => set({ locality: e.target.value, district: "" })} aria-label="Город или посёлок">
+            <RowSelect value={form.locality ?? ""} onChange={(v) => set({ locality: v, district: "" })} label="Город или посёлок">
               {props.me.localities.map((x) => (
                 <option key={x}>{x}</option>
               ))}
-            </select>
+            </RowSelect>
           </Row>
           <Row label="Район">
             {districts.length ? (
-              <select className="row-input" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })} aria-label="Район">
+              <RowSelect value={form.district ?? ""} onChange={(v) => set({ district: v })} label="Район">
                 <option value="">Не указан</option>
                 {districts.map((x) => (
                   <option key={x}>{x}</option>
                 ))}
-              </select>
+              </RowSelect>
             ) : (
               <input className="row-input" value={form.district ?? ""} onChange={(e) => set({ district: e.target.value })} placeholder="например, центр" aria-label="Район" />
             )}
           </Row>
-          <Row label="Адрес" hint="Гость увидит после подтверждения брони">
-            <input id="f-adr" className="row-input" value={form.address ?? ""} onChange={(e) => set({ address: e.target.value })} placeholder="улица, дом, квартира" aria-label="Адрес" />
+          <Row label="Улица и дом" hint="Видно в объявлении">
+            <input id="f-adr" className="row-input" value={form.address ?? ""} onChange={(e) => set({ address: e.target.value })} placeholder="ул. Ленина, 12" aria-label="Улица и дом" />
+          </Row>
+          <Row label="Квартира" hint="Гость увидит после подтверждения брони">
+            <input className="row-input" value={form.flat ?? ""} onChange={(e) => set({ flat: e.target.value })} placeholder="кв. 45, подъезд 2" aria-label="Квартира и подъезд" />
           </Row>
         </Group>
 
@@ -533,11 +552,11 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           <textarea
             id="f-desc"
             className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] text-ink outline-none"
-            rows={5}
+            rows={4}
             maxLength={3000}
             value={form.description ?? ""}
             onChange={(e) => set({ description: e.target.value })}
-            placeholder="Что рядом, какой ремонт, есть ли парковка, как заселяетесь"
+            placeholder="Пара слов: что рядом, есть ли парковка"
             aria-label="Описание"
           />
           <p className={`px-4 py-2.5 text-[13px] ${hasContacts(form.description ?? "") ? "text-bad" : "text-dim"}`}>
@@ -558,6 +577,28 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
       {l?.status === "paused" && (
         <button className="mt-4 text-[14px] font-semibold text-accent" onClick={async () => setL((await api.pause(l.id, false)).listing)}>
           Вернуть в поиск
+        </button>
+      )}
+      {/* Удалить совсем. Подтверждённые будущие брони сервер не даст бросить — скажет отменить их сначала */}
+      {l && l.status !== "blocked" && (
+        <button
+          className="mt-4 block text-[14px] font-semibold text-bad"
+          onClick={async () => {
+            const ok = await ask("Удалить объявление?", {
+              text: "Его больше никто не увидит. Запросы, которые ждут ответа, отклонятся, гостям придёт сообщение.",
+              ok: "Удалить",
+              danger: true,
+            });
+            if (!ok) return;
+            try {
+              await api.deleteListing(l.id);
+              props.onDone();
+            } catch (e) {
+              tell("Не получилось удалить", errorText(e));
+            }
+          }}
+        >
+          Удалить объявление
         </button>
       )}
 
@@ -586,6 +627,21 @@ function Group(props: { title: string; hint?: string; children: ReactNode }) {
       </div>
       <div className="card divide-y divide-line">{props.children}</div>
     </section>
+  );
+}
+
+/**
+ * Список в строке анкеты: свой значок-стрелка с отступом от края карточки. Системная стрелка выбора
+ * на Android прилипала к стенке карточки и выглядела по-разному на разных телефонах
+ */
+function RowSelect(props: { value: string; onChange: (v: string) => void; label: string; children: ReactNode }) {
+  return (
+    <span className="relative flex w-full items-center justify-end">
+      <select className="row-input appearance-none pr-6" value={props.value} onChange={(e) => props.onChange(e.target.value)} aria-label={props.label}>
+        {props.children}
+      </select>
+      <ChevronDown size={16} className="pointer-events-none absolute right-0 text-dim" aria-hidden />
+    </span>
   );
 }
 
