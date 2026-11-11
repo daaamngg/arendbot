@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Me, type SearchQuery } from "./lib/api.ts";
 import { useLive } from "./lib/live.ts";
-import { bindBackButton, openExternal, startParam } from "./lib/max.ts";
+import { bindBackButton, startParam } from "./lib/max.ts";
+import { AdminScreen } from "./screens/Admin.tsx";
 import { ChatScreen } from "./screens/Chat.tsx";
 import { ListingScreen, SearchScreen, TripsScreen } from "./screens/Guest.tsx";
 import { HostCalendar, HostForm, HostHome } from "./screens/Host.tsx";
@@ -19,7 +20,7 @@ const TITLES: Record<Screen["name"], string> = { listing: "Жильё", edit: "�
 
 /** Параметр ссылки из бота: host, admin, chat_<id> (кнопка «Открыть переписку» в уведомлении) */
 const sp = startParam();
-const initialTab: Tab = sp === "host" ? "host" : sp.startsWith("chat_") ? "trips" : "search";
+const initialTab: Tab = sp === "host" ? "host" : sp === "admin" ? "admin" : sp.startsWith("chat_") ? "trips" : "search";
 const initialStack: Screen[] = sp.startsWith("chat_") ? [{ name: "chat", id: sp.slice(5) }] : [];
 
 export default function App() {
@@ -104,17 +105,20 @@ export default function App() {
   } else if (tab === "search") {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   } else if (tab === "trips") {
-    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} />;
+    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} demo={me.demo} onCode={refreshMe} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
+  } else if (tab === "admin" && me.admin) {
+    // Админка — только у команды: вкладка появляется после кода, у обычного человека её нет вовсе
+    content = <AdminScreen owner={me.owner} />;
+  } else {
+    content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   }
 
   return (
     <Shell
       tab={tab}
       onTab={(t) => {
-        // Админка — отдельное приложение: открываем её страницу (в MAX — во встроенном браузере)
-        if (t === "admin") return openExternal("admin.html");
         setTab(t);
         setStack([]);
         window.scrollTo({ top: 0 });

@@ -168,7 +168,7 @@ export function chatNotify(l: Listing, from: "guest" | "owner", text: string, gu
 }
 
 /** Модераторам: человек хочет сдавать жильё — кнопки «Принять» и «Отказать» прямо в чате */
-export function hostAppToAdmins(u: User): OutMessage {
+export function hostAppToAdmins(u: User, hints?: { flags: string[]; good: string[] }): OutMessage {
   const a = u.hostApp!;
   return {
     text: [
@@ -176,6 +176,9 @@ export function hostAppToAdmins(u: User): OutMessage {
       `${a.name}, ${phoneText(u.phone)}`,
       a.city,
       ...(a.about ? ["", a.about] : []),
+      // Подсказки бота: что настораживает и что в пользу. Решение — за модератором
+      ...(hints?.flags.length ? ["", `Бот: проверьте — ${hints.flags.join("; ")}`] : hints ? ["", "Бот: ничего подозрительного не нашёл"] : []),
+      ...(hints?.good.length ? [`В пользу: ${hints.good.join("; ")}`] : []),
     ].join("\n"),
     buttons: [
       [

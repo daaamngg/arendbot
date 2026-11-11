@@ -22,6 +22,9 @@ export interface Photo {
   url: string;
   /** токен вложения MAX — чтобы переслать фото модератору без повторной загрузки */
   token?: string;
+  /** размер в пикселях (для фото, загруженных из приложения) — бот отмечает слишком маленькие */
+  w?: number;
+  h?: number;
 }
 
 export interface HouseRules {
@@ -73,6 +76,8 @@ export interface Listing {
   botChecked?: boolean;
   /** почему бот отправил объявление модератору */
   botReasons?: string[];
+  /** минимальная цена на момент последней проверки — резкое снижение после неё бот считает «приманкой» */
+  approvedPrice?: number;
   /** сумма и число оценок гостей */
   rating?: { sum: number; count: number };
   createdAt: number;
@@ -305,7 +310,7 @@ export interface ListingCard {
 }
 
 /** Объявление для гостя: всё, кроме квартиры и контактов */
-export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moderatorNote" | "checked" | "botChecked" | "botReasons"> & {
+export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moderatorNote" | "checked" | "botChecked" | "botReasons" | "approvedPrice"> & {
   title: string;
   /** занятые ночи на ближайшие 120 дней */
   busy: string[];

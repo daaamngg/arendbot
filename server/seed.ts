@@ -22,6 +22,7 @@ export async function seedDemo(store: Store, opts: { devUserId: number }) {
   const t = Date.now();
   const base = {
     status: "active" as const,
+    botChecked: true,
     ownerId: 500,
     rules: { pets: false, smoking: false, kids: true, parties: false },
     checkIn: "14:00",
@@ -67,6 +68,6 @@ export async function seedDemo(store: Store, opts: { devUserId: number }) {
     },
   ];
   for (const d of demo) await store.saveListing({ ...base, ...d });
-  // Разработчик в браузере — главный, чтобы видеть раздел «Админ»
-  await store.saveStaff([{ id: opts.devUserId, role: "owner", addedBy: null, addedAt: t }]);
+  // Админов в демо нет: «Админ» появляется только после кода команды (как в настоящем боте)
+  void opts;
 }

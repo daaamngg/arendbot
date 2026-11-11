@@ -23,6 +23,7 @@ const env = process.env;
 const config: Config = {
   botToken: env.MAX_BOT_TOKEN ?? "",
   adminCode: env.ADMIN_CODE ?? "",
+  modCode: env.MOD_CODE ?? "",
   webhookSecret: env.WEBHOOK_SECRET ?? "",
   // В облаке только настоящие люди из MAX: без подписи — отказ. Никакого демо-режима
   allowBrowser: false,

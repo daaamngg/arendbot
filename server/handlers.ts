@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle, missingForSubmit } from "../shared/catalog.ts";
 import { addDays, busyNights, checkRange, isDate, price, todaySamara } from "../shared/dates.ts";
-import { autoCheck } from "../shared/auto-check.ts";
+import { autoCheck, hostHints } from "../shared/auto-check.ts";
 import { hasContacts, maskContacts, suspicion } from "../shared/trust.ts";
 import {
   CANCEL_OPTIONS,
@@ -38,7 +38,6 @@ import {
   reviewAsk,
   toModerator,
 } from "./format.ts";
-import { answerLogin, checkLogin, claimCode, logout, logoutAll, sessionUid, startLogin } from "./admin-auth.ts";
 import { verifyInitData, type VerifiedInit } from "./init-data.ts";
 import type { Button, MaxApi, OutMessage } from "./max-api.ts";
 import type { Store } from "./store.ts";
@@ -65,8 +64,10 @@ export interface Config {
   moderation: "post" | "pre";
   /** демо-версия (Vercel): без токена бота, каждый открывший — тестовый пользователь devUserId */
   demo?: boolean;
-  /** адрес отдельной админки (admin.html) — для кнопки в боте */
+  /** адрес отдельной админки — больше не используется (админка внутри мини-приложения) */
   adminUrl?: string;
+  /** код модераторов (главный может сменить его в админке — тогда действует новый) */
+  modCode?: string;
 }
 
 export interface Ctx {
@@ -108,10 +109,18 @@ function limited(key: string, perHour: number) {
   return list.length > perHour;
 }
 
+/** Номер тестового человека из браузера: только из отдельного диапазона, чтобы не выдать себя за настоящего из MAX */
+const demoId = (v: unknown) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 900_000_000 && n < 1_000_000_000 ? n : null;
+};
+
 function auth(ctx: Ctx, body: any): { init: VerifiedInit; uid: number } | Res {
   // Демо: подпись MAX не проверяем (токена нет), все — один тестовый пользователь
   if (ctx.config.demo && ctx.config.devUserId) {
-    return { init: { user: { id: ctx.config.devUserId, first_name: "Демо" }, authDate: 0 }, uid: ctx.config.devUserId };
+    // Демо: у каждого браузера свой тестовый человек (номер из приложения). Админку получают только по коду
+    const id = demoId(body?.demoUser) ?? ctx.config.devUserId;
+    return { init: { user: { id, first_name: "Демо" }, authDate: 0 }, uid: id };
   }
   const initData = typeof body?.initData === "string" ? body.initData : "";
   if (initData) {
@@ -120,7 +129,8 @@ function auth(ctx: Ctx, body: any): { init: VerifiedInit; uid: number } | Res {
     return { init, uid: init.user.id };
   }
   if (ctx.config.allowBrowser && ctx.config.devUserId) {
-    return { init: { user: { id: ctx.config.devUserId, first_name: "Разработчик" }, authDate: 0 }, uid: ctx.config.devUserId };
+    const id = demoId(body?.demoUser) ?? ctx.config.devUserId;
+    return { init: { user: { id, first_name: "Разработчик" }, authDate: 0 }, uid: id };
   }
   return fail(401, "open from MAX");
 }
@@ -140,29 +150,36 @@ async function userOf(ctx: Ctx, uid: number, init?: VerifiedInit): Promise<User>
   return fresh;
 }
 
-/** Вход в админку: начать (код), узнать, подтвердили ли, выйти */
-async function adminLoginRoute(ctx: Ctx, path: string, body: any, ip: string): Promise<Res> {
+/** Действующий код модераторов: сменённый главным, иначе из настроек */
+const modCodeOf = async (ctx: Ctx) => (await ctx.store.kvGet<string>("modcode")) ?? ctx.config.modCode ?? "";
+
+/**
+ * Человек прислал код (боту или, в демо, в приложение). Как в калькуляторе: прислал верный пароль — открылась админка.
+ * Код главного — полный доступ; код модераторов — проверка объявлений, заявок и жалоб.
+ * null — код неверный (попытка записана), строка — что ответить
+ */
+async function tryCode(ctx: Ctx, uid: number, name: string | null, code: string): Promise<{ role: "owner" | "moderator" } | null> {
+  const ownerCode = ctx.config.adminCode;
+  const modCode = await modCodeOf(ctx);
+  const staff = await ctx.store.getStaff();
   const t = now(ctx);
-  if (path === "/admin/login/start") {
-    // Коды бесполезны без MAX человека из команды, но базу не засоряем. Лимит по адресу:
-    // общий лимит один злоумышленник мог бы выбрать и закрыть вход настоящей команде
-    if (limited(`als:${ip}`, 30) || limited("als", 2000)) return fail(429, "too many");
-    const r = await startLogin(ctx.store, str(body?.device, 80), t);
-    return ok({ ...r, bot: ctx.config.botUsername ?? null });
+  if (ownerCode && safeEq(code, ownerCode)) {
+    await ctx.store.saveStaff([...staff.filter((x) => x.id !== uid), { id: uid, role: "owner", addedBy: null, addedAt: t }]);
+    await audit(ctx, uid, "вошёл как главный по коду", `${name ?? "без имени"} (${uid})`);
+    return { role: "owner" };
   }
-  if (path === "/admin/login/check") {
-    if (limited(`alc:${str(body?.id, 20)}`, 400)) return fail(429, "too many");
-    return ok(await checkLogin(ctx.store, str(body?.id, 20), str(body?.secret, 60), t));
+  if (modCode && safeEq(code, modCode)) {
+    const was = staff.find((x) => x.id === uid);
+    // Главный, приславший код модераторов, остаётся главным
+    if (was?.role === "owner") return { role: "owner" };
+    if (!was) await ctx.store.saveStaff([...staff, { id: uid, role: "moderator", addedBy: null, addedAt: t }]);
+    await audit(ctx, uid, "вошёл как модератор по коду", `${name ?? "без имени"} (${uid})`);
+    // Главным — сразу сообщение: если код утёк, увидят чужого и уберут, а код сменят
+    if (!was) for (const o of staff.filter((x) => x.role === "owner")) await send(ctx, o.id, { text: `Новый модератор по коду: ${name ?? "без имени"} (MAX ${uid}). Если это не ваш человек — уберите его в админке («Команда») и смените код модераторов.` });
+    return { role: "moderator" };
   }
-  if (path === "/admin/logout") {
-    const token = str(body?.adminToken, 100);
-    if (body?.all) {
-      const sid = await sessionUid(ctx.store, token, t);
-      if (sid) await logoutAll(ctx.store, sid);
-    } else if (token) await logout(ctx.store, token);
-    return ok({ ok: true });
-  }
-  return fail(404, "not found");
+  await audit(ctx, uid, "неверный код команды", `${name ?? "без имени"} (${uid})`);
+  return null;
 }
 
 /** Кто в команде площадки: модератор или главный */
@@ -276,18 +293,43 @@ function publicListing(l: Listing, bookings: Booking[], reviews: Review[], favor
 async function publishOrHold(ctx: Ctx, l: Listing, ownerPhone: string | null, again: boolean) {
   // Автопроверка ботом: объявление, хозяин, цена против похожих, копии чужих объявлений
   const [owner, all, complaints] = await Promise.all([ctx.store.getUser(l.ownerId), ctx.store.listListings(), ctx.store.listComplaints()]);
-  const held = autoCheck({ listing: l, owner, all, complaints, now: now(ctx) });
+  const phoneTwins = owner?.phone ? (await ctx.store.listUsersByPhone(owner.phone)).filter((u) => u.id !== owner.id) : [];
+  const held = autoCheck({ listing: l, owner, all, complaints, phoneTwins, now: now(ctx) });
   const live = ctx.config.moderation === "post" && held.length === 0;
   l.status = live ? "active" : "pending";
   // Бот не нашёл замечаний — объявление сразу в поиске и модератору его смотреть не нужно
   l.checked = live;
   l.botChecked = live;
   l.botReasons = held.length ? held : undefined;
+  if (live) l.approvedPrice = Math.min(l.priceWeekday, l.priceWeekend);
   await ctx.store.saveListing(l);
   if (live) await audit(ctx, BOT_ID, again ? "бот одобрил изменения" : "бот одобрил объявление", `${listingTitle(l)} (${l.id})`);
   // Модератору пишем только когда нужна его проверка
   else await notifyAdmins(ctx, toModerator(l, ownerPhone, again, false, held), `l-${l.id}`);
   return live;
+}
+
+/** Подсказки бота к заявке «хочу сдавать» */
+async function hostHintsOf(ctx: Ctx, u: User) {
+  const [twins, asGuest, complaints] = await Promise.all([
+    u.phone ? ctx.store.listUsersByPhone(u.phone) : Promise.resolve([] as User[]),
+    ctx.store.listBookings({ guestId: u.id }),
+    ctx.store.listComplaints(),
+  ]);
+  return hostHints({ user: u, phoneTwins: twins.filter((x) => x.id !== u.id), asGuest, complaintsByUser: complaints.filter((c) => c.userId === u.id).length, now: now(ctx) });
+}
+
+/** Ширина и высота JPEG из заголовка (маркер SOF) — без библиотек. Не нашли — пусто */
+function jpegSize(b: Buffer): { w?: number; h?: number } {
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) return {};
+    const m = b[i + 1];
+    const len = b.readUInt16BE(i + 2);
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+    i += 2 + len;
+  }
+  return {};
 }
 
 /** «Кто сделал» в журнале для решений автопроверки */
@@ -509,17 +551,8 @@ async function bookingView(ctx: Ctx, b: Booking, forOwner: boolean) {
 
 /** meta.ip — адрес, с которого пришёл запрос (для лимитов на вход в админку) */
 export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: string } = {}): Promise<Res> {
-  // Вход в отдельную админку — до проверки MAX: страница может быть открыта в обычном браузере
-  if (path.startsWith("/admin/login/") || path === "/admin/logout") return adminLoginRoute(ctx, path, body, meta.ip ?? "?");
-
-  let a: { init?: VerifiedInit; uid: number } | Res;
-  if (typeof body?.adminToken === "string" && body.adminToken) {
-    // Ключ админки годится только для админки: бронировать или писать от имени человека по нему нельзя
-    if (path !== "/me" && !path.startsWith("/admin/")) return fail(403, "forbidden");
-    const sid = await sessionUid(ctx.store, body.adminToken, now(ctx));
-    // Убрали из команды — ключ сразу перестаёт работать
-    a = sid && (await isAdmin(ctx, sid)) ? { uid: sid } : fail(401, "admin session");
-  } else a = auth(ctx, body);
+  void meta;
+  const a = auth(ctx, body);
   if ("status" in a) return a;
   const { init, uid } = a;
   const t = now(ctx);
@@ -533,10 +566,19 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
   };
 
   switch (path) {
+    case "/demo/code": {
+      // Только демо-версия: бота там нет, поэтому код команды вводят в приложении. В облаке этого пути нет
+      if (!ctx.config.demo && !ctx.config.allowBrowser) return fail(404, "unknown");
+      if (limited(`acode:${uid}`, 5)) return fail(429, "too many");
+      const r = await tryCode(ctx, uid, user.name, str(body?.code, 64));
+      return r ? ok(r) : fail(400, "bad code");
+    }
+
     case "/me":
       return ok({
         user: { id: uid, name: user.name, phone: user.phone, consent: user.consentAt != null },
         admin: await isAdmin(ctx, uid),
+        demo: !!ctx.config.demo || ctx.config.allowBrowser,
         owner: await isOwner(ctx, uid),
         host: await hostStatusOf(ctx, user),
         hostNote: user.hostStatus === "rejected" ? (user.hostApp?.note ?? null) : null,
@@ -724,7 +766,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       };
       user.hostStatus = "pending";
       await ctx.store.saveUser(user);
-      await notifyAdmins(ctx, hostAppToAdmins(user), `h-${uid}`);
+      await notifyAdmins(ctx, hostAppToAdmins(user, await hostHintsOf(ctx, user)), `h-${uid}`);
       return ok({ host: "pending" });
     }
 
@@ -739,7 +781,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       // Только настоящий JPEG и не больше 2,5 МБ: подменённый файл не пройдёт
       if (buf.length < 1000 || buf.length > 2_500_000 || buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) return fail(400, "bad image");
       const url = await ctx.store.savePhoto(buf);
-      l.photos.push({ url });
+      l.photos.push({ url, ...jpegSize(buf) });
       l.updatedAt = t;
       if (l.status === "active") l.checked = l.botChecked = false;
       await ctx.store.saveListing(l);
@@ -749,7 +791,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/admin/applications": {
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
       const list = await ctx.store.listHostApplicants("pending");
-      return ok({ applications: list.map((u) => ({ id: u.id, phone: u.phone, ...u.hostApp! })) });
+      // К каждой заявке — подсказки бота: решает человек, но думать за всё ему не нужно
+      return ok({ applications: await Promise.all(list.map(async (u) => ({ id: u.id, phone: u.phone, ...u.hostApp!, hints: await hostHintsOf(ctx, u) }))) });
     }
 
     case "/admin/application": {
@@ -911,9 +954,10 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       applyForm(l, body?.form);
       const contentChanged = before !== JSON.stringify(CONTENT_FIELDS.map((k) => l![k]));
       l.updatedAt = t;
-      // Опубликованное с новым содержимым — модератор смотрит снова (подозрительное скрывается до проверки);
-      // цены и календарь — без проверки
-      if (l.status === "active" && contentChanged) await publishOrHold(ctx, l, user.phone, true);
+      // Опубликованное с новым содержимым — бот проверяет снова (подозрительное скрывается до проверки).
+      // Цены — без проверки, кроме резкого снижения: это приём «приманки» после того, как объявление одобрили
+      const bait = !!l.approvedPrice && Math.min(l.priceWeekday, l.priceWeekend) < l.approvedPrice * 0.6;
+      if (l.status === "active" && (contentChanged || bait)) await publishOrHold(ctx, l, user.phone, true);
       else await ctx.store.saveListing(l);
       return ok({ listing: l, missing: missingForSubmit(l) });
     }
@@ -1032,6 +1076,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/admin/complaint": {
       // Решение по жалобе: hide — скрыть объявление; ban — заблокировать хозяина; ok — всё в порядке
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      // Заблокировать человека может только главный; модератор — скрыть объявление или закрыть жалобу
+      if (body?.action === "ban" && !(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const r = await resolveComplaint(ctx, str(body?.id, 16), body?.action, uid);
       return r ? fail(400, r) : ok({ ok: true });
     }
@@ -1061,7 +1107,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     }
     case "/admin/restore": {
       // Вернуть снятое или отклонённое объявление в поиск (ошиблись или хозяин исправил)
-      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const l = await ctx.store.getListing(str(body?.id, 16));
       if (!l || !["blocked", "rejected"].includes(l.status)) return fail(400, "bad status");
       if ((await ctx.store.getUser(l.ownerId))?.blocked) return fail(400, "owner blocked");
@@ -1087,7 +1133,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     }
 
     case "/admin/users": {
-      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const users = await ctx.store.searchUsers(str(body?.q, 60), 50);
       const staff = await ctx.store.getStaff();
       const rows = await Promise.all(
@@ -1107,7 +1153,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/admin/user/block": {
       // Заблокировать (обман) или разблокировать человека. Себя и главных — нельзя
-      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const target = Number(body?.id);
       if (!target || target === uid) return fail(400, "bad user");
       if ((await ctx.store.getStaff()).some((m) => m.id === target && m.role === "owner")) return fail(400, "owner");
@@ -1128,7 +1174,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     }
 
     case "/admin/staff": {
-      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const staff = await ctx.store.getStaff();
       const rows = await Promise.all(
         staff.map(async (m) => {
@@ -1139,15 +1185,48 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       return ok({ staff: rows, owner: await isOwner(ctx, uid) });
     }
 
-    case "/admin/staff/invite": {
-      // Модератор — по одноразовому приглашению: главный получает код, человек отправляет его боту из своего MAX.
-      // Раньше назначали по номеру телефона, но номер в приложении можно вписать чужой — и забрать чужое место в команде
+    case "/admin/listing/delete": {
+      // Главный удаляет любое объявление. Ждущие запросы отклоняются, подтверждённые брони отменяются с сообщением гостю
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
-      if (limited(`inv:${uid}`, 20)) return fail(429, "too many");
-      const code = `${randomUUID().replace(/-/g, "").slice(0, 4)}-${randomUUID().replace(/-/g, "").slice(0, 4)}`.toUpperCase();
-      await ctx.store.kvSet(`invite:${code}`, { by: uid, until: t + 24 * 3600_000 });
-      await audit(ctx, uid, "создал приглашение модератора", code.slice(0, 4) + "-****");
-      return ok({ code, until: t + 24 * 3600_000 });
+      const l = await ctx.store.getListing(str(body?.id, 16));
+      if (!l || l.status === "deleted") return fail(404, "not found");
+      for (const b of await ctx.store.listBookings({ listingId: l.id, status: ["requested", "confirmed"] })) {
+        if (b.status === "requested") await decide(ctx, b, false);
+        else if (b.checkOut > todaySamara(t)) await cancel(ctx, b, "owner");
+      }
+      l.status = "deleted";
+      l.moderatorNote = str(body?.note, 300) || "Удалено администратором площадки.";
+      l.updatedAt = t;
+      await ctx.store.saveListing(l);
+      await send(ctx, l.ownerId, { text: `Объявление «${listingTitle(l)}» удалено администратором.\n${l.moderatorNote}` });
+      await audit(ctx, uid, "удалил объявление", `${listingTitle(l)}, ${l.locality} (${l.id})`, l.moderatorNote);
+      return ok({ ok: true });
+    }
+
+    case "/admin/booking/cancel": {
+      // Главный отменяет любую бронь (спор, обман). Обе стороны получают сообщение
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      const b = await ctx.store.getBooking(str(body?.id, 16));
+      if (!b || !["requested", "confirmed"].includes(b.status)) return fail(400, "cannot cancel");
+      const note = str(body?.note, 300) || "Бронь отменена администратором площадки.";
+      if (b.status === "requested") await decide(ctx, b, false);
+      else await cancel(ctx, b, "owner");
+      await send(ctx, b.guestId, { text: note });
+      await send(ctx, b.ownerId, { text: note });
+      await audit(ctx, uid, "отменил бронь", `${b.id}`, note);
+      return ok({ ok: true });
+    }
+
+    case "/admin/modcode": {
+      // Код модераторов: главный видит его и может сменить (если код утёк — старый перестаёт работать сразу)
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      if (body?.rotate === true) {
+        if (limited(`mc:${uid}`, 20)) return fail(429, "too many");
+        const code = randomUUID().replace(/-/g, "").slice(0, 12);
+        await ctx.store.kvSet("modcode", code);
+        await audit(ctx, uid, "сменил код модераторов", "");
+      }
+      return ok({ code: await modCodeOf(ctx) });
     }
 
     case "/admin/staff/remove": {
@@ -1216,7 +1295,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     }
 
     case "/admin/audit": {
-      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const entries = await ctx.store.listAudit(100);
       const names = new Map<number, string>();
       for (const e of entries) if (!names.has(e.by)) names.set(e.by, e.by === BOT_ID ? "Бот" : ((await ctx.store.getUser(e.by))?.name ?? String(e.by)));
@@ -1235,6 +1314,7 @@ async function moderate(ctx: Ctx, l: Listing, approve: boolean, note: string, by
   if (!(l.status === "pending" || (wasLive && !l.checked))) return "already moderated";
   l.status = approve ? "active" : "rejected";
   l.checked = approve;
+  if (approve) l.approvedPrice = Math.min(l.priceWeekday, l.priceWeekend);
   l.moderatorNote = approve ? undefined : note;
   l.updatedAt = now(ctx);
   await ctx.store.saveListing(l);
@@ -1362,82 +1442,35 @@ export async function processUpdate(ctx: Ctx, update: any) {
     const uid: number | undefined = msg?.sender?.user_id;
     if (!uid) return;
     const text: string = (msg?.body?.text ?? "").trim();
-    const m = text.match(/^\/admin\s+(\S+)$/);
     const u = await ctx.store.getUser(uid);
     const photos = photosOf(msg);
 
     if (/^\/start(\s|$)/i.test(text)) return hello(uid);
 
-    // Код входа в админку: «483920» или «/login 483920». Только для команды; остальным — как будто кода нет
-    const loginCode = text.match(/^(?:\/login\s+)?(\d{6})$/i)?.[1];
-    if (loginCode) {
-      if (limited(`alb:${uid}`, 20)) return;
-      const staff = await isAdmin(ctx, uid);
-      const l = staff ? await claimCode(ctx.store, loginCode, uid, now(ctx)) : null;
-      if (!l) {
-        await send(ctx, uid, { text: "Код не подходит или устарел. Обновите страницу админки и отправьте новый." });
+    // Код команды: «/admin <код>», «/mod <код>» или просто сам код одним словом (латиница и цифры, от 8 знаков).
+    // Не больше 5 попыток в час — код не перебрать
+    const codeMsg = text.match(/^\/(?:admin|mod)\s+(\S+)$/i)?.[1] ?? (/^[A-Za-z0-9_-]{8,64}$/.test(text) ? text : null);
+    if (codeMsg && (ctx.config.adminCode || (await modCodeOf(ctx)))) {
+      if (limited(`acode:${uid}`, 5)) return;
+      const r = await tryCode(ctx, uid, u?.name ?? msg?.sender?.name ?? null, codeMsg);
+      if (!r) {
+        // Отвечаем только на явную команду, иначе обычное слово латиницей выглядело бы как «неверный пароль»
+        if (text.startsWith("/")) await send(ctx, uid, { text: "Код не подходит." });
         return;
       }
-      const at = new Date(l.createdAt).toLocaleString("ru-RU", { timeZone: "Europe/Samara", hour: "2-digit", minute: "2-digit" });
       await send(ctx, uid, {
-        text: `Вход в админку
-Устройство: ${l.device}
-Код запрошен в ${at}
-
-Это вы? Если админку открывали не вы, нажмите «Нет» и никому не пересылайте коды.`,
-        buttons: [[{ type: "callback", text: "Да, это я", payload: `al:y:${l.id}` }, { type: "callback", text: "Нет", payload: `al:n:${l.id}` }]],
+        text:
+          r.role === "owner"
+            ? "Готово: вы главный. Полный доступ к админке: объявления, брони, люди, команда, коды. Новые объявления и жалобы будут приходить сюда."
+            : "Готово: вы модератор. В приложении появилась вкладка «Модератор»: проверка объявлений, заявки хозяев, жалобы.",
+        buttons: appButton(ctx, "Открыть админку", "admin"),
       });
       return;
     }
-    // Выйти из админки на всех устройствах (потерял телефон, входил с чужого компьютера)
-    if (/^\/logout_all$/i.test(text)) {
-      const n = await logoutAll(ctx.store, uid);
-      await send(ctx, uid, { text: n ? `Готово: вход в админку закрыт на всех устройствах (${n}).` : "Открытых входов в админку нет." });
-      return;
-    }
-    // Приглашение в модераторы: «/join ABCD-1234» от человека из его MAX (личность подтверждает сам MAX)
-    const join = text.match(/^\/join\s+([0-9A-Za-z]{4}-[0-9A-Za-z]{4})$/i)?.[1]?.toUpperCase();
-    if (join) {
-      if (limited(`join:${uid}`, 10)) return;
-      const inv = await ctx.store.kvGet<{ by: number; until: number }>(`invite:${join}`);
-      const staff = await ctx.store.getStaff();
-      if (!inv || now(ctx) > inv.until || u?.blocked) {
-        await send(ctx, uid, { text: "Приглашение не подходит или устарело. Попросите у главного новое." });
-        return;
-      }
-      await ctx.store.kvSet(`invite:${join}`, undefined);
-      if (!staff.some((x) => x.id === uid)) await ctx.store.saveStaff([...staff, { id: uid, role: "moderator", addedBy: inv.by, addedAt: now(ctx) }]);
-      await audit(ctx, inv.by, "назначил модератора", `${u?.name ?? msg?.sender?.name ?? "без имени"} (${uid})`);
-      await send(ctx, uid, {
-        text: "Готово: вы модератор площадки. Новые объявления и жалобы будут приходить сюда. Админка открывается кнопкой ниже, вход кодом через этого бота.",
-        buttons: ctx.config.adminUrl ? [[{ type: "link", text: "Открыть админку", url: ctx.config.adminUrl }]] : undefined,
-      });
-      await send(ctx, inv.by, { text: `${u?.name ?? msg?.sender?.name ?? "Человек"} принял приглашение и стал модератором. Убрать можно в админке, раздел «Модераторы».` });
-      return;
-    }
-    // Ссылка на админку для команды
+    // Кнопка в админку для команды
     if (/^\/(?:panel|admin)$/i.test(text)) {
       if (!(await isAdmin(ctx, uid))) return;
-      await send(ctx, uid, {
-        text: "Админка открывается отдельно, в MAX или в браузере на компьютере. На странице нажмите «Получить код» и отправьте код сюда.",
-        buttons: ctx.config.adminUrl ? [[{ type: "link", text: "Открыть админку", url: ctx.config.adminUrl }]] : undefined,
-      });
-      return;
-    }
-    if (m && ctx.config.adminCode && limited(`acode:${uid}`, 5)) return;
-    if (m && ctx.config.adminCode && !safeEq(m[1], ctx.config.adminCode)) {
-      await audit(ctx, uid, "неверный код главного", String(uid));
-      return;
-    }
-    if (m && ctx.config.adminCode && safeEq(m[1], ctx.config.adminCode)) {
-      // Код знает только Сергей — по нему становятся главным. Модераторов главный назначает в приложении
-      const staff = await ctx.store.getStaff();
-      await ctx.store.saveStaff([...staff.filter((x) => x.id !== uid), { id: uid, role: "owner", addedBy: null, addedAt: now(ctx) }]);
-      await audit(ctx, uid, "вошёл как главный по коду", String(uid));
-      await send(ctx, uid, {
-        text: "Готово: вы главный на площадке. Новые объявления и жалобы будут приходить сюда. Админка открывается отдельно: нажмите кнопку, на странице «Получить код» и отправьте код сюда.",
-        buttons: ctx.config.adminUrl ? [[{ type: "link", text: "Открыть админку", url: ctx.config.adminUrl }]] : appButton(ctx, "Открыть админку", "admin"),
-      });
+      await send(ctx, uid, { text: "Админка — вкладка внизу мини-приложения.", buttons: appButton(ctx, "Открыть админку", "admin") });
       return;
     }
     if (u?.photosFor && photos.length) {
@@ -1487,14 +1520,6 @@ export async function processUpdate(ctx: Ctx, update: any) {
     const [kind, action, id, extra] = String(cb?.payload ?? "").split(":");
     const answer = (n: string) => ctx.max.answerCallback(cb.callback_id, n).catch((e) => ctx.log(`answer: ${(e as Error).message}`));
 
-    // Подтверждение входа в админку: al:y:<вход> / al:n:<вход>
-    if (kind === "al") {
-      if (!(await isAdmin(ctx, uid))) return answer("Нет прав.");
-      const r = await answerLogin(ctx.store, id ?? "", uid, action === "y", now(ctx));
-      if (r === "ok") await audit(ctx, uid, "вошёл в админку", "через бота");
-      return answer(r === "ok" ? "Готово, админка открылась. Вернитесь на страницу." : r === "denied" ? "Вход отменён." : "Этот вход уже не действует.");
-    }
-
     if (kind === "ph") {
       const u = await ctx.store.getUser(uid);
       return answer(u ? await photosDone(u) : "Готово.");
@@ -1532,6 +1557,7 @@ export async function processUpdate(ctx: Ctx, update: any) {
     // Жалобы: adm:hide:<объявление>:<жалоба>, adm:ok:<жалоба>, adm:ban:<хозяин>:<жалоба>
     if (kind === "adm") {
       if (!(await isAdmin(ctx, uid))) return answer("Нет прав.");
+      if (action === "ban" && !(await isOwner(ctx, uid))) return answer("Блокировать людей может только главный.");
       const complaintId = action === "ok" ? id : extra;
       const r = await resolveComplaint(ctx, complaintId ?? "", action, uid);
       return answer(r ? "Уже решено." : action === "hide" ? "Объявление скрыто." : action === "ban" ? "Хозяин заблокирован, его объявления сняты." : "Жалоба закрыта.");

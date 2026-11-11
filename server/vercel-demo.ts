@@ -14,7 +14,8 @@ const log = (s: string) => console.log(s.slice(0, 500));
 const ctx: Ctx = {
   store: fileStore("/tmp/arenda-demo/db.json"),
   max: maxApi({ token: "", dryRun: true, log: () => {} }),
-  config: { botToken: "", adminCode: "", webhookSecret: "", allowBrowser: true, devUserId: DEMO_USER, decideHours: 3, moderation: "post", demo: true },
+  // Коды команды — из настроек Vercel (ADMIN_CODE, MOD_CODE), в коде их нет
+  config: { botToken: "", adminCode: process.env.ADMIN_CODE ?? "", modCode: process.env.MOD_CODE ?? "", webhookSecret: "", allowBrowser: true, devUserId: DEMO_USER, decideHours: 3, moderation: "post", demo: true },
   log,
 };
 

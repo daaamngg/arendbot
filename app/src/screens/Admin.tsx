@@ -12,22 +12,23 @@ import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
 
 type Section = "apps" | "bookings" | "complaints" | "review" | "listings" | "people" | "team" | "log";
 
-// Заявки «хочу сдавать» — первыми: без решения модератора человек не может разместить жильё
-const SECTIONS: { id: Section; title: string }[] = [
-  { id: "apps", title: "Заявки" },
-  { id: "bookings", title: "Брони" },
-  { id: "complaints", title: "Жалобы" },
+// Модератор видит только то, что нужно проверять. Главный — всё: брони, объявления, люди, команда, история
+const SECTIONS: { id: Section; title: string; owner?: boolean }[] = [
   { id: "review", title: "Проверка" },
-  { id: "listings", title: "Объявления" },
-  { id: "people", title: "Люди" },
-  { id: "team", title: "Модераторы" },
-  { id: "log", title: "История" },
+  { id: "apps", title: "Заявки" },
+  { id: "complaints", title: "Жалобы" },
+  { id: "bookings", title: "Брони", owner: true },
+  { id: "listings", title: "Объявления", owner: true },
+  { id: "people", title: "Люди", owner: true },
+  { id: "team", title: "Команда", owner: true },
+  { id: "log", title: "История", owner: true },
 ];
 
 const when = (ms: number) => new Date(ms).toLocaleString("ru-RU", { timeZone: "Europe/Samara", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export function AdminScreen(props: { owner: boolean }) {
-  const [section, setSection] = useState<Section>("apps");
+  const [section, setSection] = useState<Section>("review");
+  const sections = SECTIONS.filter((x) => !x.owner || props.owner);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   useLive(() => api.stats().then(setStats), 30000, [section]);
@@ -62,7 +63,7 @@ export function AdminScreen(props: { owner: boolean }) {
         </div>
       )}
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]" role="tablist">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <button key={s.id} role="tab" aria-selected={section === s.id} className="chip shrink-0" aria-pressed={section === s.id} onClick={() => { setSection(s.id); setMsg(null); }}>
             {s.title}
             {s.id === "complaints" && stats?.openComplaints ? <span className="ml-1.5 rounded-full bg-bad px-1.5 text-[11px] font-bold text-white">{stats.openComplaints}</span> : null}
@@ -73,8 +74,8 @@ export function AdminScreen(props: { owner: boolean }) {
       {msg && <p className="mb-3 rounded-lg bg-accent-soft p-3 text-[14px] text-ink">{msg}</p>}
 
       {section === "apps" && <Applications act={act} />}
-      {section === "bookings" && <Bookings />}
-      {section === "complaints" && <Complaints act={act} />}
+      {section === "bookings" && props.owner && <Bookings act={act} />}
+      {section === "complaints" && <Complaints act={act} owner={props.owner} />}
       {section === "review" && <Review act={act} />}
       {section === "listings" && <AllListings act={act} />}
       {section === "people" && <People act={act} />}
@@ -114,6 +115,11 @@ function Applications(props: { act: Act }) {
           </div>
           {a.about && <p className="mt-2">{a.about}</p>}
           <div className="mt-1 text-[12px] text-dim">подана {when(a.at)}</div>
+          {/* Подсказки бота: решаете вы, но проверять всё вручную не нужно */}
+          <div className={`mt-3 rounded-lg px-3 py-2 text-[13px] ${a.hints.flags.length ? "bg-[#f6ecd9] text-warn" : "bg-[#e2efe3] text-ok"}`}>
+            {a.hints.flags.length ? <>Бот советует проверить: {a.hints.flags.join("; ")}</> : "Бот ничего подозрительного не нашёл"}
+            {a.hints.good.length > 0 && <div className="mt-0.5 text-dim">В пользу: {a.hints.good.join("; ")}</div>}
+          </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button className="btn btn-main" onClick={() => props.act(() => api.decideApplication(a.id, true), "Заявка принята, человек может размещать объявления.", load)}>
               Принять
@@ -136,7 +142,7 @@ function Applications(props: { act: Act }) {
 
 // --- Жалобы гостей ---------------------------------------------------------------------
 
-function Complaints(props: { act: Act }) {
+function Complaints(props: { act: Act; owner: boolean }) {
   const [complaints, setComplaints] = useState<ComplaintRow[] | null>(null);
   const load = () => api.pending().then((r) => setComplaints(r.complaints), () => setComplaints((x) => x ?? []));
   // Новое приходит само, без перезагрузки
@@ -162,12 +168,12 @@ function Complaints(props: { act: Act }) {
                     Всё в порядке
                   </button>
                 </div>
-                <button
+                {props.owner && <button
                   className="mt-2 w-full text-[14px] font-semibold text-bad"
                   onClick={async () => (await ask("Заблокировать хозяина?", { text: "Все его объявления снимутся, гостям придёт отмена.", ok: "Заблокировать", danger: true })) && props.act(() => api.resolveComplaint(c.id, "ban"), "Хозяин заблокирован.", load)}
                 >
                   Заблокировать хозяина
-                </button>
+                </button>}
               </li>
             ))}
       </ul>
@@ -289,6 +295,17 @@ function AllListings(props: { act: Act }) {
                       Снять
                     </button>
                   )}
+                  {l.status !== "deleted" && (
+                    <button
+                      className="font-semibold text-bad"
+                      onClick={async () => {
+                        const note = await askText("Удалить объявление?", "Удалено администратором площадки.", { text: "Ждущие запросы отклонятся, подтверждённые брони отменятся. Хозяин получит причину.", ok: "Удалить", danger: true });
+                        if (note !== null) props.act(() => api.adminDeleteListing(l.id, note), "Объявление удалено.", load);
+                      }}
+                    >
+                      Удалить
+                    </button>
+                  )}
                   {(l.status === "blocked" || l.status === "rejected") && (
                     <button className="font-semibold text-accent" onClick={() => props.act(() => api.adminRestore(l.id), "Объявление снова в поиске.", load)}>
                       Вернуть в поиск
@@ -366,8 +383,11 @@ function People(props: { act: Act }) {
 
 function Team(props: { act: Act; owner: boolean }) {
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
-  const [invite, setInvite] = useState<string | null>(null);
+  const [modCode, setModCode] = useState("");
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (props.owner) api.modCode().then((r) => setModCode(r.code), () => {});
+  }, [props.owner]);
   const load = () => api.staff().then((r) => setStaff(r.staff), () => setStaff([]));
   useEffect(() => {
     load();
@@ -399,38 +419,32 @@ function Team(props: { act: Act; owner: boolean }) {
       </ul>
       {props.owner ? (
         <section className="mt-5 card space-y-3 p-4">
-          <h2 className="font-bold text-ink">Добавить модератора</h2>
+          <h2 className="font-bold text-ink">Код модераторов</h2>
           <p className="text-[13px] text-dim">
-            Получите код и передайте человеку. Он отправит его боту из своего MAX и станет модератором. Код одноразовый, действует сутки.
+            Человек отправляет этот код боту и становится модератором: проверка объявлений, заявок и жалоб. Вам придёт сообщение о каждом новом.
+            Если код ушёл не тому — смените, старый сразу перестанет работать.
           </p>
-          {invite ? (
-            <div className="rounded-xl border border-line bg-surface-2/60 p-3 text-center">
-              <div className="text-[13px] text-dim">Пусть отправит боту:</div>
-              <button
-                className="mt-1 text-[22px] font-bold tracking-wide text-ink tabular-nums"
-                onClick={() => navigator.clipboard?.writeText(`/join ${invite}`).then(() => setCopied(true), () => {})}
-              >
-                /join {invite}
-              </button>
-              <div className="mt-1 text-[12px] text-dim">{copied ? "Скопировано" : "Нажмите, чтобы скопировать"}</div>
-            </div>
-          ) : (
-            <button
-              className="btn btn-main w-full"
-              onClick={() =>
-                props.act(
-                  async () => {
-                    const r = await api.staffInvite();
-                    setInvite(r.code);
-                    setCopied(false);
-                  },
-                  "Код готов. Когда человек отправит его боту, вам придёт сообщение.",
-                )
-              }
-            >
-              <UserPlus size={18} /> Получить код приглашения
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5">
+            <button className="min-w-0 truncate text-[18px] font-bold tracking-wide text-ink tabular-nums" onClick={() => modCode && navigator.clipboard?.writeText(modCode).then(() => setCopied(true), () => {})}>
+              {modCode || "не задан"}
             </button>
-          )}
+            <span className="shrink-0 text-[12px] text-dim">{copied ? "скопировано" : modCode ? "нажмите, чтобы скопировать" : ""}</span>
+          </div>
+          <button
+            className="btn btn-line w-full"
+            onClick={async () => {
+              if (modCode && !(await ask("Сменить код модераторов?", { text: "Старый перестанет работать. Те, кто уже модератор, останутся.", ok: "Сменить" }))) return;
+              props.act(
+                async () => {
+                  setModCode((await api.modCode(true)).code);
+                  setCopied(false);
+                },
+                "Новый код готов.",
+              );
+            }}
+          >
+            {modCode ? "Сменить код" : "Создать код"}
+          </button>
         </section>
       ) : (
         <p className="mt-4 text-[14px] text-dim">Назначать модераторов может только главный.</p>
@@ -441,9 +455,10 @@ function Team(props: { act: Act; owner: boolean }) {
 
 // --- Брони: все запросы гостей и ближайшие заезды ----------------------------------------------
 
-function Bookings() {
+function Bookings(props: { act: Act }) {
   const [list, setList] = useState<AdminBookingRow[] | null>(null);
-  useLive(() => api.adminBookings().then((r) => setList(r.bookings), () => setList((x) => x ?? [])), 15000);
+  const load = () => api.adminBookings().then((r) => setList(r.bookings), () => setList((x) => x ?? []));
+  useLive(load, 15000);
   if (!list) return <Spinner />;
   if (!list.length) return <p className="text-dim">Активных броней нет.</p>;
   return (
@@ -487,6 +502,15 @@ function Bookings() {
             Запрос {when(b.createdAt)}
             {b.status === "requested" ? ` · хозяин ответит до ${when(b.decideBy)}` : ""}
           </div>
+          <button
+            className="mt-2 text-[14px] font-semibold text-bad"
+            onClick={async () => {
+              const note = await askText("Отменить бронь?", "Бронь отменена администратором площадки.", { text: "Гость и хозяин получат это сообщение.", ok: "Отменить бронь", danger: true });
+              if (note !== null) props.act(() => api.adminCancelBooking(b.id, note), "Бронь отменена.", load);
+            }}
+          >
+            Отменить бронь
+          </button>
         </li>
       ))}
     </ul>

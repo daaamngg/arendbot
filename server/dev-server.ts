@@ -16,6 +16,7 @@ const env = process.env;
 const config: Config = {
   botToken: env.MAX_BOT_TOKEN ?? "",
   adminCode: env.ADMIN_CODE ?? "",
+  modCode: env.MOD_CODE ?? "",
   webhookSecret: env.WEBHOOK_SECRET ?? "",
   allowBrowser: env.ALLOW_BROWSER !== "0",
   devUserId: Number(env.DEV_USER) || 1,

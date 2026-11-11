@@ -54,8 +54,13 @@ const userRow = (u: User): DocRow => ({ kind: "user", id: s(u.id), g1: s(u.phone
 const listingRow = (l: Listing): DocRow => ({ kind: "listing", id: l.id, g1: s(l.ownerId), g2: l.status, data: l });
 const bookingRow = (b: Booking): DocRow => ({ kind: "booking", id: b.id, g1: b.listingId, g2: s(b.guestId), g3: s(b.ownerId), g4: b.status, data: b });
 const threadRow = (t: ChatThread): DocRow => ({ kind: "thread", id: t.id, g1: `${t.listingId}:${t.guestId}`, g2: s(t.guestId), g3: s(t.ownerId), data: t });
-const chatId = (m: ChatMessage) => `${m.threadId}:${String(m.createdAt).padStart(15, "0")}:${m.id}`;
-const chatRow = (m: ChatMessage): DocRow => ({ kind: "chat", id: chatId(m), g1: m.threadId, data: m });
+// Сообщения одной миллисекунды остаются по порядку отправки: время + счётчик
+let chatSeq = 0;
+const chatId = (m: ChatMessage) => {
+  chatSeq = (chatSeq + 1) % 1e6;
+  return `${m.threadId}:${String(m.createdAt).padStart(15, "0")}:${String(chatSeq).padStart(6, "0")}:${m.id}`;
+};
+const chatRow = (m: ChatMessage, id = chatId(m)): DocRow => ({ kind: "chat", id, g1: m.threadId, data: m });
 
 const byDesc = <T>(key: (x: T) => number) => (a: T, b: T) => key(b) - key(a);
 
@@ -141,10 +146,12 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
       return (await db.prefix<ChatMessage>("chat", `${threadId}:`)).map(([, m]) => m).slice(-limit);
     },
     async markChatMessageDeleted(threadId, id, at) {
-      const m = (await db.prefix<ChatMessage>("chat", `${threadId}:`)).map(([, x]) => x).find((x) => x.id === id);
-      if (!m) return undefined;
+      // Перезаписываем ту же строку (тот же ключ), а не создаём новую
+      const row = (await db.prefix<ChatMessage>("chat", `${threadId}:`)).find(([, x]) => x.id === id);
+      if (!row) return undefined;
+      const [key, m] = row;
       m.deletedAt ??= at;
-      await db.put(chatRow(m));
+      await db.put(chatRow(m, key));
       return m;
     },
     getReplyTarget: (mid) => db.get<ReplyTarget>("reply", mid),
@@ -155,6 +162,7 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
     async getAdmins() {
       return (await getStaff()).map((m) => m.id);
     },
+    listUsersByPhone: (phone) => db.find<User>("user", "g1", phone),
     async findUserByPhone(phone) {
       return (await db.find<User>("user", "g1", phone))[0];
     },

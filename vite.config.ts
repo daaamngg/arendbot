@@ -1,4 +1,3 @@
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -19,11 +18,5 @@ export default defineConfig({
     ],
   },
   server: { proxy: { "/api": "http://localhost:8788" }, allowedHosts: true },
-  // Две страницы: мини-приложение (index.html) и отдельная админка (admin.html)
-  build: {
-    outDir: "../dist",
-    emptyOutDir: true,
-    target: "es2020",
-    rollupOptions: { input: { main: fileURLToPath(new URL("./app/index.html", import.meta.url)), admin: fileURLToPath(new URL("./app/admin.html", import.meta.url)) } },
-  },
+  build: { outDir: "../dist", emptyOutDir: true, target: "es2020" },
 });

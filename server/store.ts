@@ -53,6 +53,8 @@ export interface Store {
   getAdmins(): Promise<number[]>;
 
   findUserByPhone(phone: string): Promise<User | undefined>;
+  /** все люди с этим номером (для проверки: номер у нескольких аккаунтов, у заблокированного) */
+  listUsersByPhone(phone: string): Promise<User[]>;
   /** люди с заявкой «хочу сдавать» в нужном статусе */
   listHostApplicants(status: "pending" | "approved" | "rejected"): Promise<User[]>;
 
@@ -242,6 +244,9 @@ export function fileStore(path: string): Store {
     },
     async findUserByPhone(phone) {
       return Object.values(db.users).find((u) => u.phone === phone);
+    },
+    async listUsersByPhone(phone) {
+      return Object.values(db.users).filter((u) => u.phone === phone);
     },
     async listHostApplicants(status) {
       return Object.values(db.users)

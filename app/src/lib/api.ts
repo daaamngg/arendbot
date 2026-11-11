@@ -17,11 +17,21 @@ export class ApiError extends Error {
  * Запрос к серверу. Не висит вечно: через 10 секунд обрывается (на фото — 30).
  * Если сеть мигнула или сервер на секунду недоступен — один повтор. Ошибки сервера (4xx) не повторяем
  */
-// Ключ входа отдельной админки (admin.html). В мини-приложении его нет — там вход по подписи MAX
-let adminToken: string | null = null;
-export const setAdminToken = (t: string | null) => {
-  adminToken = t;
-};
+// Демо и разработка (браузер без MAX): у каждого браузера свой тестовый человек — номер хранится в браузере.
+// В MAX не используется: там человек определяется подписью MAX
+const demoUser = (() => {
+  if (initData()) return undefined;
+  try {
+    let v = localStorage.getItem("arenda-demo-user");
+    if (!v) {
+      v = String(900_000_000 + Math.floor(Math.random() * 99_999_999));
+      localStorage.setItem("arenda-demo-user", v);
+    }
+    return Number(v);
+  } catch {
+    return undefined;
+  }
+})();
 
 async function post<T>(path: string, body: object = {}, opts: { timeout?: number } = {}): Promise<T> {
   const attempt = async () => {
@@ -31,7 +41,7 @@ async function post<T>(path: string, body: object = {}, opts: { timeout?: number
       return await fetch(`${BASE}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, initData: initData(), ...(adminToken ? { adminToken } : {}) }),
+        body: JSON.stringify({ ...body, initData: initData(), ...(demoUser ? { demoUser } : {}) }),
         signal: ctl.signal,
       });
     } finally {
@@ -62,6 +72,8 @@ export interface Me {
   user: { id: number; name: string | null; phone: string | null; consent: boolean };
   admin: boolean;
   owner: boolean;
+  /** демо или разработка: код команды можно ввести прямо в приложении */
+  demo: boolean;
   unread: number;
   /** может ли сдавать: заявка не подана / ждёт / одобрена / отклонена */
   host: "none" | "pending" | "approved" | "rejected";
@@ -104,6 +116,8 @@ export interface HostApplicationRow {
   city: string;
   about: string;
   at: number;
+  /** подсказки бота: что настораживает, что в пользу */
+  hints: { flags: string[]; good: string[] };
 }
 
 export interface AdminBookingRow {
@@ -246,9 +260,10 @@ export const api = {
   favorites: () => post<{ cards: ListingCard[] }>("/favorites"),
   review: (bookingId: string, stars: number, text: string) => post<{ ok: true }>("/review", { bookingId, stars, text }),
   complaint: (id: string, reason: string, text: string) => post<{ ok: true }>("/complaint", { id, reason, text }),
-  adminLoginStart: (device: string) => post<{ id: string; secret: string; code: string; expiresAt: number; bot: string | null }>("/admin/login/start", { device }),
-  adminLoginCheck: (id: string, secret: string) => post<{ state: "waiting" | "asked" | "approved" | "denied" | "used" | "expired"; token?: string }>("/admin/login/check", { id, secret }),
-  adminLogout: (all = false) => post<{ ok: true }>("/admin/logout", { all }),
+  demoCode: (code: string) => post<{ role: "owner" | "moderator" }>("/demo/code", { code }),
+  modCode: (rotate = false) => post<{ code: string }>("/admin/modcode", { rotate }),
+  adminDeleteListing: (id: string, note: string) => post<{ ok: true }>("/admin/listing/delete", { id, note }),
+  adminCancelBooking: (id: string, note: string) => post<{ ok: true }>("/admin/booking/cancel", { id, note }),
   chatHide: (id: string) => post<{ ok: true }>("/chat/hide", { id }),
   chatDelete: (id: string, messageId: string) => post<{ ok: true }>("/chat/delete", { id, messageId }),
   chatOpen: (listingId: string) => post<{ thread: ThreadView; messages: ChatMsg[] }>("/chat/open", { listingId }),
@@ -281,7 +296,6 @@ export const api = {
   adminUsers: (q: string) => post<{ users: AdminUser[] }>("/admin/users", { q }),
   adminBlockUser: (id: number, blocked: boolean, note?: string) => post<{ ok: true }>("/admin/user/block", { id, blocked, note }),
   staff: () => post<{ staff: StaffRow[]; owner: boolean }>("/admin/staff"),
-  staffInvite: () => post<{ code: string; until: number }>("/admin/staff/invite"),
   staffRemove: (id: number) => post<{ ok: true }>("/admin/staff/remove", { id }),
   stats: () => post<AdminStats>("/admin/stats"),
   applications: () => post<{ applications: HostApplicationRow[] }>("/admin/applications"),
@@ -319,6 +333,8 @@ export function errorText(e: unknown): string {
     "too early": "Отметить можно в день заезда или позже.",
     "has bookings": "По этому объявлению есть подтверждённые брони. Сначала отмените их, потом удалите объявление.",
     "bad status": "Сейчас это сделать нельзя.",
+    "bad code": "Код не подходит.",
+    forbidden: "Это может сделать только главный.",
     "bad initData": "Приложение было открыто слишком долго. Закройте его и откройте бота заново.",
     "open from MAX": "Откройте приложение из бота в MAX.",
     "not found": "Не найдено: возможно, уже удалено или снято.",
