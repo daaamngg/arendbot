@@ -22,7 +22,7 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
       api.hostBookings().then((r) => setBookings(r.bookings), () => {}),
     ]);
   // Новые запросы гостей и статус объявлений приходят сами, без перезагрузки
-  useLive(load, 15000);
+  useLive(load, 8000);
 
   if (!props.me.user.phone || !props.me.user.consent) {
     return (

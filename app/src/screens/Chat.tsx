@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Home, MessageCircle, RotateCw, SendHorizontal, Trash2 } from "lucide-react";
+import { AlertCircle, Check, Clock3, Home, MessageCircle, RotateCw, SendHorizontal, Trash2 } from "lucide-react";
 import { api, errorText, type ChatMsg, type ThreadView } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
 import { ask, tell } from "../ui/dialog.tsx";
@@ -26,7 +26,9 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
   const [outbox, setOutbox] = useState<Outgoing[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const vp = useVisualViewport();
 
   useEffect(() => {
     const load = props.id ? api.chatThread(props.id) : api.chatOpen(props.listingId!);
@@ -48,7 +50,10 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
     [thread?.id],
   );
 
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [messages.length, outbox.length]);
+  // Новое сообщение или открылась клавиатура — лента прокручивается к последнему
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: 1e9 });
+  }, [messages.length, outbox.length, vp.height]);
 
   if (failed) return <p className="text-bad">Переписка недоступна: объявление снято или ссылка устарела.</p>;
   if (!thread) return null;
@@ -82,76 +87,145 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
     if (!v) return;
     setNote(null);
     setText("");
+    if (input.current) input.current.style.height = "auto";
     const o: Outgoing = { key: newKey(), text: v, createdAt: Date.now(), state: "sending" };
     setOutbox((list) => [...list, o]);
     deliver(o);
   };
 
   const mine = (m: ChatMsg) => m.from === thread.role;
+  // Одна лента: присланные + свои, которые ещё летят. Подряд идущие от одного человека — группой, «хвостик» у последнего
+  type Row = { key: string; own: boolean; text: string; at: number; deleted?: boolean; state?: Outgoing["state"]; msg?: ChatMsg; out?: Outgoing };
+  const rows: Row[] = [
+    ...messages.map((m) => ({ key: m.id, own: mine(m), text: m.text, at: m.createdAt, deleted: m.deleted, msg: m })),
+    ...outbox.map((o) => ({ key: o.key, own: true, text: o.text, at: o.createdAt, state: o.state, out: o })),
+  ];
   return (
-    <>
-      <button className="card -mt-1 mb-4 flex w-full items-center gap-3 p-2.5 text-left" onClick={() => props.onListing(thread.listingId)}>
-        <div className="size-12 shrink-0 overflow-hidden rounded-lg bg-surface-2">{thread.photo ? <img src={thread.photo} alt="" className="size-full object-cover" /> : <Home className="m-auto mt-3 text-dim" />}</div>
+    // Экран переписки как в Telegram: закреплён между шапкой и низом видимой области — когда открывается клавиатура,
+    // поле ввода поднимается над ней, а не прячется под неё
+    <div className="fixed inset-x-0 z-10 mx-auto flex max-w-[560px] flex-col bg-[#e7ebe6]" style={{ top: vp.top + 52, height: Math.max(200, vp.height - 52) }}>
+      <button className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-2 text-left" onClick={() => props.onListing(thread.listingId)}>
+        <div className="size-9 shrink-0 overflow-hidden rounded-lg bg-surface-2">{thread.photo ? <img src={thread.photo} alt="" className="size-full object-cover" /> : <Home className="m-auto mt-2 text-dim" size={18} />}</div>
         <div className="min-w-0">
-          <div className="truncate font-semibold text-ink">{thread.title}</div>
-          <div className="text-[13px] text-dim">
+          <div className="truncate text-[14px] font-semibold text-ink">{thread.title}</div>
+          <div className="truncate text-[12px] text-dim">
             {thread.locality} · {thread.role === "guest" ? "переписка с хозяином" : `гость: ${thread.otherName}`}
           </div>
         </div>
       </button>
 
-      {messages.length === 0 && outbox.length === 0 && (
-        <div className="py-8 text-center text-[14px] text-dim">
-          <MessageCircle className="mx-auto mb-2" />
-          {thread.role === "guest" ? "Спросите хозяина о заселении, парковке или о чём угодно. Ответ придёт сюда и в чат с ботом." : "Сообщений пока нет."}
-        </div>
-      )}
-      <ul className="space-y-2 pb-2">
-        {messages.map((m) => (
-          <li key={m.id} className={`flex ${mine(m) ? "justify-end" : "justify-start"}`}>
-            {/* Своё сообщение: нажать → «Удалить у всех». Удалённое показывается серой строкой */}
-            <div
-              className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-[15px] ${m.deleted ? "border border-dashed border-line text-dim italic" : mine(m) ? "cursor-pointer rounded-br-md bg-accent text-white" : "rounded-bl-md border border-line bg-surface text-ink"}`}
-              onClick={() => mine(m) && !m.deleted && removeMsg(m)}
-            >
-              <div className="whitespace-pre-wrap break-words">{m.deleted ? "Сообщение удалено" : m.text}</div>
-              <div className={`mt-0.5 text-right text-[11px] ${mine(m) && !m.deleted ? "text-white/70" : "text-dim"}`}>{timeText(m.createdAt)}</div>
-            </div>
-          </li>
-        ))}
-        {outbox.map((o) => (
-          <li key={o.key} className="flex flex-col items-end">
-            <div className={`max-w-[82%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2 text-[15px] text-white ${o.state === "sending" ? "opacity-70" : ""}`}>
-              <div className="whitespace-pre-wrap break-words">{o.text}</div>
-              <div className="mt-0.5 text-right text-[11px] text-white/70">{o.state === "sending" ? "отправляется…" : "не отправлено"}</div>
-            </div>
-            {o.state === "failed" && (
-              <button className="mt-1 flex items-center gap-1 text-[13px] font-semibold text-bad" onClick={() => deliver(o)}>
-                <RotateCw size={13} /> Повторить
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
-      <div ref={bottom} />
-
-      <div className="sticky bottom-0 -mx-4 mt-auto border-t border-line bg-bg px-4 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]">
-        {note && <p className="mb-2 text-[13px] text-dim">{note}</p>}
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendMsg();
-          }}
-        >
-          <textarea className="field max-h-32 min-h-11 flex-1 resize-none py-2.5" rows={1} maxLength={1000} placeholder="Сообщение" value={text} onChange={(e) => setText(e.target.value)} aria-label="Сообщение" />
-          <button className="btn btn-main size-11 min-h-0 shrink-0 p-0" disabled={!text.trim()} aria-label="Отправить">
-            <SendHorizontal size={19} />
-          </button>
-        </form>
+      <div ref={scroller} className="flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
+        {rows.length === 0 && (
+          <div className="mx-auto mt-10 max-w-[280px] rounded-2xl bg-black/25 px-4 py-3 text-center text-[13px] text-white">
+            <MessageCircle className="mx-auto mb-1" size={20} />
+            {thread.role === "guest" ? "Спросите хозяина о заселении, парковке или о чём угодно. Ответ придёт сюда и в чат с ботом." : "Сообщений пока нет."}
+          </div>
+        )}
+        <ul>
+          {rows.map((r, i) => {
+            const prev = rows[i - 1];
+            const next = rows[i + 1];
+            const newDay = !prev || dayKey(prev.at) !== dayKey(r.at);
+            const lastInGroup = !next || next.own !== r.own || dayKey(next.at) !== dayKey(r.at);
+            return (
+              <li key={r.key}>
+                {newDay && (
+                  <div className="my-2 flex justify-center">
+                    <span className="rounded-full bg-black/25 px-2.5 py-0.5 text-[12px] font-medium text-white">{dayLabel(r.at)}</span>
+                  </div>
+                )}
+                <div className={`flex ${r.own ? "justify-end" : "justify-start"} ${lastInGroup ? "mb-2" : "mb-0.5"}`}>
+                  <div
+                    className={`relative max-w-[80%] px-2.5 pt-1.5 pb-1 text-[15px] leading-snug shadow-[0_1px_1px_rgb(0_0_0/0.08)] ${
+                      r.own ? `bg-[#dcf0ff] text-ink ${lastInGroup ? "rounded-[16px] rounded-br-[4px]" : "rounded-[16px]"}` : `bg-surface text-ink ${lastInGroup ? "rounded-[16px] rounded-bl-[4px]" : "rounded-[16px]"}`
+                    } ${r.deleted ? "italic text-dim" : ""} ${r.state === "sending" ? "opacity-80" : ""}`}
+                    // Своё сообщение: нажать → «Удалить у всех»
+                    onClick={() => r.msg && r.own && !r.deleted && removeMsg(r.msg)}
+                  >
+                    <span className="whitespace-pre-wrap break-words">{r.deleted ? "Сообщение удалено" : r.text}</span>
+                    {/* Время и галочка — в углу, как в Telegram: «невидимый» хвост в тексте оставляет им место */}
+                    <span className="invisible ml-2 inline-block w-[52px]" aria-hidden />
+                    <span className={`absolute right-2 bottom-1 flex items-center gap-0.5 text-[11px] ${r.own ? "text-accent/70" : "text-dim"}`}>
+                      {timeOnly(r.at)}
+                      {r.own && !r.deleted && (r.state === "sending" ? <Clock3 size={12} /> : r.state === "failed" ? <AlertCircle size={12} className="text-bad" /> : <Check size={13} />)}
+                    </span>
+                  </div>
+                </div>
+                {r.state === "failed" && r.out && (
+                  <div className="-mt-1 mb-2 flex justify-end">
+                    <button className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-[12px] font-semibold text-bad shadow-sm" onClick={() => deliver(r.out!)}>
+                      <RotateCw size={12} /> Не отправлено. Повторить
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </div>
-    </>
+
+      {note && <p className="shrink-0 bg-surface px-4 pt-2 text-[12px] text-dim">{note}</p>}
+      <form
+        className="flex shrink-0 items-end gap-2 bg-surface px-2.5 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          sendMsg();
+        }}
+      >
+        <textarea
+          ref={input}
+          className="max-h-32 min-h-10 flex-1 resize-none rounded-[20px] border border-line bg-bg px-3.5 py-2 text-[15px] text-ink outline-none focus:border-accent"
+          rows={1}
+          maxLength={1000}
+          placeholder="Сообщение"
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Поле растёт вместе с текстом (до 5 строк), как в мессенджерах
+            e.target.style.height = "auto";
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`;
+          }}
+          onFocus={() => setTimeout(() => scroller.current?.scrollTo({ top: 1e9 }), 250)}
+          aria-label="Сообщение"
+        />
+        <button className="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-white transition-opacity disabled:opacity-40" disabled={!text.trim()} aria-label="Отправить">
+          <SendHorizontal size={18} />
+        </button>
+      </form>
+    </div>
   );
+}
+
+const dayKey = (ms: number) => new Date(ms + 4 * 3600e3).toISOString().slice(0, 10);
+const timeOnly = (ms: number) => new Date(ms).toLocaleTimeString("ru-RU", { timeZone: "Europe/Samara", hour: "2-digit", minute: "2-digit" });
+function dayLabel(ms: number) {
+  const k = dayKey(ms);
+  const today = dayKey(Date.now());
+  if (k === today) return "Сегодня";
+  if (k === dayKey(Date.now() - 86_400_000)) return "Вчера";
+  return new Date(ms).toLocaleDateString("ru-RU", { timeZone: "Europe/Samara", day: "numeric", month: "long" });
+}
+
+/**
+ * Видимая часть экрана с учётом клавиатуры. На телефоне клавиатура «съедает» низ экрана, а браузер не всегда
+ * сдвигает страницу — поэтому переписка сама подстраивает высоту под то, что реально видно
+ */
+function useVisualViewport() {
+  const read = () => ({ height: window.visualViewport?.height ?? window.innerHeight, top: window.visualViewport?.offsetTop ?? 0 });
+  const [vp, setVp] = useState(read);
+  useEffect(() => {
+    const v = window.visualViewport;
+    const on = () => setVp(read());
+    v?.addEventListener("resize", on);
+    v?.addEventListener("scroll", on);
+    window.addEventListener("resize", on);
+    return () => {
+      v?.removeEventListener("resize", on);
+      v?.removeEventListener("scroll", on);
+      window.removeEventListener("resize", on);
+    };
+  }, []);
+  return vp;
 }
 
 /** Список переписок (и как гостя, и как хозяина) — во вкладке «Моё» */

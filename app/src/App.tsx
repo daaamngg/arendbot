@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type Me, type SearchQuery } from "./lib/api.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, errorText, type Me, type SearchQuery } from "./lib/api.ts";
 import { useLive } from "./lib/live.ts";
 import { bindBackButton, startParam } from "./lib/max.ts";
 import { AdminScreen } from "./screens/Admin.tsx";
@@ -7,7 +7,7 @@ import { ChatScreen } from "./screens/Chat.tsx";
 import { ListingScreen, SearchScreen, TripsScreen } from "./screens/Guest.tsx";
 import { HostCalendar, HostForm, HostHome } from "./screens/Host.tsx";
 import { Shell, Spinner, type Tab } from "./ui/ui.tsx";
-import { DialogHost } from "./ui/dialog.tsx";
+import { DialogHost, askText, tell } from "./ui/dialog.tsx";
 
 // Навигация: вкладка + стек вложенных экранов. «Назад» MAX снимает верхний экран
 type Screen =
@@ -37,17 +37,35 @@ export default function App() {
   // Значок непрочитанных и статус заявки хозяина обновляются сами (тихо, без экрана ошибки)
   useLive(() => (me ? api.me().then(setMe) : undefined), 30000, [!!me]);
 
+  // Кнопка «Назад» телефона. Раньше у приложения не было своей истории — «Назад» сразу закрывал его.
+  // Теперь каждый вложенный экран и переход с «Поиска» на другую вкладку — шаг в истории браузера:
+  // «Назад» закрывает экран, потом возвращает на «Поиск», и только потом выходит из приложения
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  useEffect(() => {
+    history.replaceState({ app: 0 }, "");
+    const onPop = () => {
+      if (stackRef.current.length) {
+        setStack((st) => st.slice(0, -1));
+        // Вернулись из переписки — значок непрочитанных мог измениться
+        api.me().then(setMe, () => {});
+      } else if (tabRef.current !== "search") setTab("search");
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const push = (s: Screen) => {
+    history.pushState({ app: 1 }, "");
     setStack((st) => [...st, s]);
     window.scrollTo({ top: 0 });
   };
-  const back = useCallback(() => {
-    setStack((st) => st.slice(0, -1));
-    window.scrollTo({ top: 0 });
-    // Вернулись из переписки — значок непрочитанных мог измениться
-    api.me().then(setMe, () => {});
-  }, []);
-  useEffect(() => bindBackButton(stack.length > 0, back), [stack.length, back]);
+  // Кнопки «Назад» на экране и в шапке MAX идут через историю — так она не расходится с экранами
+  const back = useCallback(() => history.back(), []);
+  useEffect(() => bindBackButton(stack.length > 0 || tab !== "search", back), [stack.length, tab, back]);
 
   const onPhone = (phone: string) => setMe((m) => (m ? { ...m, user: { ...m.user, phone, consent: true } } : m));
 
@@ -105,7 +123,7 @@ export default function App() {
   } else if (tab === "search") {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   } else if (tab === "trips") {
-    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} demo={me.demo} onCode={refreshMe} />;
+    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
   } else if (tab === "admin" && me.admin) {
@@ -119,6 +137,8 @@ export default function App() {
     <Shell
       tab={tab}
       onTab={(t) => {
+        // С «Поиска» на другую вкладку — шаг в истории (чтобы «Назад» вернул на поиск, а не закрыл приложение)
+        if (tab === "search" && t !== "search" && !stack.length) history.pushState({ app: 1 }, "");
         setTab(t);
         setStack([]);
         window.scrollTo({ top: 0 });
@@ -128,10 +148,25 @@ export default function App() {
       owner={me.owner}
       unread={me.unread}
       onBack={top ? back : undefined}
+      // Только демо: 5 нажатий на логотип — поле для кода команды (в настоящем боте код просто отправляют боту)
+      onLogo={me.demo ? () => demoCode(refreshMe) : undefined}
       title={top ? TITLES[top.name] : undefined}
     >
       {content}
       <DialogHost />
     </Shell>
   );
+}
+
+/** Только демо (бота нет): код команды вводят здесь. В MAX код отправляют сообщением боту — как в калькуляторе */
+async function demoCode(done: () => void) {
+  const code = await askText("Код команды", "", { text: "Только для проверки в демо. В настоящем боте пароль отправляют сообщением боту.", ok: "Войти", placeholder: "Пароль" });
+  if (!code) return;
+  try {
+    const r = await api.demoCode(code);
+    tell(r.role === "owner" ? "Вы главный" : "Вы модератор", "Внизу появилась вкладка админки.");
+    done();
+  } catch (e) {
+    tell("Не получилось", errorText(e));
+  }
 }

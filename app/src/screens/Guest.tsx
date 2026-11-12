@@ -619,7 +619,7 @@ type MineTab = "trips" | "chats" | "favs";
  * «Моё»: три вкладки вместо длинной ленты — брони, сообщения, избранное. Брони делятся на предстоящие
  * и прошлые; у каждой маленькое фото слева, детали подтверждённой — в одной плашке
  */
-export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number; demo?: boolean; onCode?: () => void }) {
+export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number }) {
   const [tab, setTab] = useState<MineTab>(props.unread ? "chats" : "trips");
   const [list, setList] = useState<BookingView[] | null>(null);
   const [favs, setFavs] = useState<ListingCard[]>([]);
@@ -634,7 +634,7 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
       },
       () => setError((e) => (list ? e : "Не получилось загрузить.")),
     );
-  useLive(load, 15000);
+  useLive(load, 8000);
   useEffect(() => {
     api.favorites().then((r) => setFavs(r.cards), () => {});
   }, []);
@@ -765,7 +765,6 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
         ))}
 
       {tab === "chats" && <ThreadList onOpen={props.onChat} bare />}
-      {props.demo && <DemoCode onDone={props.onCode} />}
 
       {tab === "favs" &&
         (favs.length === 0 ? (
@@ -784,43 +783,5 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
           </div>
         ))}
     </>
-  );
-}
-
-/** Только демо и разработка: код команды вводится здесь (в MAX его отправляют боту, как в калькуляторе) */
-function DemoCode(props: { onDone?: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  if (!open) {
-    return (
-      <button className="mt-8 block text-[13px] text-dim underline" onClick={() => setOpen(true)}>
-        Код команды (демо)
-      </button>
-    );
-  }
-  return (
-    <form
-      className="mt-8 card space-y-2 p-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        try {
-          const r = await api.demoCode(code.trim());
-          setMsg(r.role === "owner" ? "Вы главный. Внизу появилась вкладка «Админ»." : "Вы модератор. Внизу появилась вкладка «Модератор».");
-          props.onDone?.();
-        } catch (err) {
-          setMsg(errorText(err));
-        }
-      }}
-    >
-      <p className="text-[13px] text-dim">В настоящем боте код отправляют сообщением боту. Здесь — для проверки.</p>
-      <div className="flex gap-2">
-        <input className="field min-w-0 flex-1" type="password" autoComplete="off" placeholder="Код" value={code} onChange={(e) => setCode(e.target.value)} aria-label="Код команды" />
-        <button className="btn btn-main shrink-0" disabled={!code.trim()}>
-          Войти
-        </button>
-      </div>
-      {msg && <p className="text-[13px] text-ink">{msg}</p>}
-    </form>
   );
 }

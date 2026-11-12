@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, ChevronLeft, Heart, KeyRound, LoaderCircle, Minus, Plus, Search, ShieldCheck } from "lucide-react";
 import type { BookingStatus, ListingStatus } from "../../../shared/types.ts";
 import { api } from "../lib/api.ts";
@@ -8,7 +8,17 @@ export type Tab = "search" | "trips" | "host" | "admin";
 
 // Каркас: тонкая шапка, снизу панель вкладок с иконками (как в обычных приложениях — палец достаёт).
 // На вложенных экранах панели нет, вместо неё «Назад». Нижние кнопки экранов (Sticky) встают над панелью
-export function Shell(props: { children: ReactNode; tab: Tab; onTab: (t: Tab) => void; admin: boolean; owner?: boolean; unread?: number; onBack?: () => void; title?: string }) {
+export function Shell(props: { children: ReactNode; tab: Tab; onTab: (t: Tab) => void; admin: boolean; owner?: boolean; unread?: number; onBack?: () => void; title?: string; onLogo?: () => void }) {
+  const taps = useRef<number[]>([]);
+  const logoTap = () => {
+    if (!props.onLogo) return;
+    const t = Date.now();
+    taps.current = [...taps.current.filter((x) => t - x < 2000), t];
+    if (taps.current.length >= 5) {
+      taps.current = [];
+      props.onLogo();
+    }
+  };
   const tabs: { id: Tab; title: string; icon: typeof Search }[] = [
     { id: "search", title: "Поиск", icon: Search },
     { id: "trips", title: "Моё", icon: Heart },
@@ -34,7 +44,7 @@ export function Shell(props: { children: ReactNode; tab: Tab; onTab: (t: Tab) =>
         {props.title ? (
           <div className="truncate text-[17px] font-bold text-ink">{props.title}</div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={logoTap}>
             <span className="grid size-7 place-items-center rounded-lg bg-accent text-white" aria-hidden>
               <KeyRound size={16} strokeWidth={2.4} />
             </span>
