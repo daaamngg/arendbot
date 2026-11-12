@@ -74,10 +74,11 @@ let seq = 0;
  */
 export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => string; photos?: { save(name: string, jpeg: Buffer): Promise<string> } } = {}): Store {
   const photoUrl = opts.photoUrl ?? ((name: string) => `/api/photos/${name}`);
-  // Команда нужна почти в каждом запросе (/me, проверка прав) — держим 20 секунд в памяти, чтобы не читать базу каждый раз
+  // Команда нужна почти в каждом запросе — держим 3 секунды (только против всплеска запросов). Дольше нельзя:
+  // в облаке несколько копий сервера, и после кода боту вкладка «Админ» появлялась бы с задержкой
   let staffCache: { at: number; list: StaffMember[] } | null = null;
   const getStaff = async () => {
-    if (staffCache && Date.now() - staffCache.at < 20_000) return staffCache.list;
+    if (staffCache && Date.now() - staffCache.at < 3_000) return staffCache.list;
     const list = (await db.get<StaffMember[]>("staff", "all")) ?? [];
     staffCache = { at: Date.now(), list };
     return list;
