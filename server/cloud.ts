@@ -133,6 +133,7 @@ export async function handler(event: HttpEvent, context?: { token?: { access_tok
     return json(r.status, r.json);
   } catch (e) {
     console.error(`Ошибка: ${(e as Error).stack}`);
-    return json(500, { error: "server error" });
+    // DEBUG_ERRORS=1 — временно для наладки: текст ошибки в ответе (в обычной работе выключено)
+    return json(500, { error: "server error", ...(env.DEBUG_ERRORS === "1" ? { detail: String((e as Error).message).slice(0, 300) } : {}) });
   }
 }

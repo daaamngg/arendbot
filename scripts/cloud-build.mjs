@@ -27,9 +27,9 @@ await build({
   target: "node22",
   format: "cjs",
   outfile: `${out}/function/index.js`,
-  external: ["ydb-sdk"],
+  external: ["ydb-sdk", "@grpc/grpc-js"],
   logLevel: "warning",
 });
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-writeFileSync(`${out}/function/package.json`, JSON.stringify({ name: "arenda-function", private: true, dependencies: { "ydb-sdk": pkg.dependencies["ydb-sdk"] } }, null, 2));
+writeFileSync(`${out}/function/package.json`, JSON.stringify({ name: "arenda-function", private: true, dependencies: { "ydb-sdk": pkg.dependencies["ydb-sdk"], "@grpc/grpc-js": "1.14.7" } }, null, 2));
 console.log(`ok: ${out}/function (точка входа index.handler) и ${out}/site`);

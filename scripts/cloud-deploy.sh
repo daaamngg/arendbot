@@ -14,7 +14,7 @@ YC="${YC:-$HOME/yandex-cloud/bin/yc.exe}"
 # Платёжный аккаунт account-apogee-6581 и уведомление arenda-stop-10rub (10 ₽ в месяц) — для рубильника
 BILLING_ID="${BILLING_ID:-dn2l3o2rhqkldphkarkx}"
 BUDGET_ID="${BUDGET_ID:-dn2kbo3iu0bu72bid4du}"
-P="--profile arenda"
+P="--profile ${YC_PROFILE:-arenda}"
 J() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s||'null');console.log(eval('o'+process.argv[1])??'')})" "$1"; }
 env_of() { grep -E "^$1=" .env.local | head -1 | cut -d= -f2-; }
 
@@ -49,7 +49,7 @@ API_URL="https://functions.yandexcloud.net/$FN_ID?p="
 
 # --- сборка и выкладка
 API_URL="$API_URL" node scripts/cloud-build.mjs
-"$YC" $P storage s3 cp --recursive cloud-dist/site "s3://$BUCKET/" >/dev/null
+YC="$YC" node scripts/cloud-upload-site.mjs "$BUCKET" "${YC_PROFILE:-arenda}" >/dev/null
 WEBHOOK_SECRET=$(env_of WEBHOOK_SECRET); [ -n "$WEBHOOK_SECRET" ] || { WEBHOOK_SECRET=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"); echo "WEBHOOK_SECRET=$WEBHOOK_SECRET" >> .env.local; }
 "$YC" $P serverless function version create --function-name arenda-api --runtime nodejs22 --entrypoint index.handler \
   --memory 128m --execution-timeout 15s --source-path cloud-dist/function --service-account-id "$SA_FN" \

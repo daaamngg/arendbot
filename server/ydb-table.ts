@@ -1,3 +1,4 @@
+import { Metadata } from "@grpc/grpc-js";
 import { Column, Driver, TableDescription, TableIndex, TypedValues, Types, getCredentialsFromEnv, type Session, type Ydb } from "ydb-sdk";
 import type { DocRow, DocTable, DocTx, GField } from "./doc-store.ts";
 
@@ -59,8 +60,37 @@ function ops(run: Run): DocTx & { pages: (q: (after: string) => [string, Record<
   };
 }
 
+/**
+ * Вход в YDB токеном сервисного аккаунта функции из сервиса метаданных облака. Встроенный вход ydb-sdk
+ * требует тяжёлую библиотеку @yandex-cloud/nodejs-sdk — обходимся одним запросом. Токен обновляем заранее
+ */
+function metadataAuth() {
+  let token = "";
+  let until = 0;
+  return {
+    async getAuthMetadata() {
+      if (!token || Date.now() > until) {
+        const r = await fetch("http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" } });
+        if (!r.ok) throw new Error(`метаданные: ${r.status}`);
+        const j = (await r.json()) as { access_token: string; expires_in: number };
+        token = j.access_token;
+        until = Date.now() + Math.max(60, j.expires_in - 300) * 1000;
+      }
+      const md = new Metadata();
+      md.add("x-ydb-auth-ticket", token);
+      return md;
+    },
+  };
+}
+
 export async function ydbTable(connectionString: string): Promise<DocTable> {
-  const driver = new Driver({ connectionString, authService: getCredentialsFromEnv() });
+  // В облаке (YDB_METADATA_CREDENTIALS=1) — свой вход по токену функции; иначе — как скажут переменные окружения
+  const authService = process.env.YDB_METADATA_CREDENTIALS === "1" ? metadataAuth() : getCredentialsFromEnv();
+  // ydb-sdk 5 читает «grpcs://хост/?database=/путь» неправильно (берёт путь «/»), поэтому переносим базу в путь
+  const u = new URL(connectionString);
+  const db = u.searchParams.get("database");
+  const cs = db ? `${u.protocol}//${u.host}${db}` : connectionString;
+  const driver = new Driver({ connectionString: cs, authService });
   if (!(await driver.ready(10_000))) throw new Error("YDB: нет соединения");
   const withSession = <T>(fn: (s: Session) => Promise<T>) => driver.tableClient.withSessionRetry(fn);
 
@@ -108,20 +138,31 @@ export async function ydbTable(connectionString: string): Promise<DocTable> {
       ]);
       return rows.map(([id, d]) => [id, JSON.parse(d) as T] as [string, T]);
     },
-    tx<T>(fn: (t: DocTx) => Promise<T>) {
-      // Одна сериализуемая транзакция: если кто-то успел изменить прочитанное, YDB отменит её,
-      // а withSessionRetry выполнит всё заново уже со свежими данными
-      return withSession(async (s) => {
-        let txId: string | null = null;
-        const t = ops(async (q, p) => {
-          const r = await s.executeQuery(q, p, txId ? { txId } : { beginTx: { serializableReadWrite: {} }, commitTx: false });
-          txId ??= r.txMeta?.id ?? null;
-          return r;
-        });
-        const out = await fn(t);
-        if (txId) await s.commitTransaction({ txId });
-        return out;
-      });
+    async tx<T>(fn: (t: DocTx) => Promise<T>) {
+      // Одна сериализуемая транзакция. Если двое пишут одновременно (две брони на одни даты из разных копий сервера),
+      // YDB отменяет вторую («locks invalidated» / «transaction not found»). Тогда выполняем её заново:
+      // со свежими данными она увидит первую бронь и вернёт «занято». Проверено гонкой: 10 одновременных → прошла 1
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await withSession(async (s) => {
+            let txId: string | null = null;
+            const t = ops(async (q, p) => {
+              const r = await s.executeQuery(q, p, txId ? { txId } : { beginTx: { serializableReadWrite: {} }, commitTx: false });
+              txId ??= r.txMeta?.id ?? null;
+              return r;
+            });
+            const out = await fn(t);
+            if (txId) await s.commitTransaction({ txId });
+            return out;
+          });
+        } catch (e) {
+          const m = String((e as Error)?.message ?? e);
+          const conflict = /locks invalidated|transaction not found|aborted|ABORTED|2015/i.test(m);
+          if (!conflict || attempt >= 8) throw e;
+          // Небольшая случайная пауза, чтобы повторы не столкнулись снова
+          await new Promise((r) => setTimeout(r, 30 + Math.random() * 120 * (attempt + 1)));
+        }
+      }
     },
   };
   return table;

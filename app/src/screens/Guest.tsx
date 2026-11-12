@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, SlidersHorizontal, Star, Users } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
@@ -242,6 +242,9 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
     );
   }, [props.id]);
 
+  // Занятость обновляется сама, пока человек выбирает даты: кто-то мог забронировать минуту назад
+  useLive(() => (data ? api.listing(props.id).then((r) => setData(r)) : undefined), 20000, [props.id, !!data]);
+
   const l = data?.listing;
   const busySet = useMemo(() => new Set(l?.busy ?? []), [l]);
   // Цена считается здесь же, теми же правилами, что на сервере; сервер всё равно перепроверит
@@ -306,8 +309,10 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
       haptic("success");
       setDone(r.booking);
     } catch (e) {
-      // Ничего не сбрасываем: даты, гости и комментарий остаются, можно нажать «Повторить»
+      // Ничего не сбрасываем: даты, гости и комментарий остаются, можно нажать «Повторить».
+      // Даты успел занять кто-то другой — подтягиваем свежую занятость в календарь
       setBookError(errorText(e));
+      api.listing(l.id).then((r) => setData(r), () => {});
       haptic("error");
     } finally {
       setBusy(false);
@@ -365,6 +370,11 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           <Stars value={l.stars} count={l.reviewList.length} />
         </div>
       )}
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[22px] font-bold text-ink tabular-nums">{rub(Math.min(l.priceWeekday, l.priceWeekend))}</span>
+        <span className="text-[14px] text-dim">за ночь</span>
+        {l.priceWeekend !== l.priceWeekday && <span className="text-[14px] text-dim">· пт и сб {rub(l.priceWeekend)}</span>}
+      </div>
       <div className="mt-1 flex items-center gap-1.5 text-[14px] text-dim">
         <MapPin size={15} className="shrink-0" /> {[l.locality, l.address].filter(Boolean).join(", ")}
       </div>
@@ -385,65 +395,61 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
         </button>
       )}
 
-      <section className="mt-4 card divide-y divide-line text-[15px]">
-        <div className="flex justify-between px-4 py-3">
-          <span>Ночь в будни</span>
-          <b className="text-ink tabular-nums">{rub(l.priceWeekday)}</b>
-        </div>
-        <div className="flex justify-between px-4 py-3">
-          <span>Ночь в пятницу и субботу</span>
-          <b className="text-ink tabular-nums">{rub(l.priceWeekend)}</b>
-        </div>
-        <div className="flex justify-between px-4 py-3 text-dim">
-          <span>
-            Заезд с {l.checkIn}, выезд до {l.checkOut}
-          </span>
-          <span>{nightsFrom(l.minNights)}</span>
-        </div>
-        {l.deposit > 0 && (
-          <div className="flex justify-between px-4 py-3 text-dim">
-            <span>Залог при заселении, вернут при выезде</span>
-            <span className="tabular-nums">{rub(l.deposit)}</span>
-          </div>
-        )}
-        <div className="px-4 py-3 text-dim">{cancelText(l.cancelDays)}</div>
-      </section>
-
       {l.description && <p className="mt-4 whitespace-pre-line text-[15px]">{l.description}</p>}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {RULES.map(([k, yes, no]) => (
-          <span key={k} className="chip">
-            {l.rules[k] ? yes : no}
-          </span>
-        ))}
-        {l.amenities.map((a) => (
-          <span key={a} className="chip">
-            {a}
-          </span>
-        ))}
-      </div>
-
-      {l.reviewList.length > 0 && (
-        <section className="mt-6">
-          <h2 className="mb-2 text-[17px] font-bold text-ink">Отзывы гостей</h2>
-          <ul className="space-y-2">
-            {l.reviewList.map((r) => (
-              <li key={r.id} className="card p-3 text-[14px]">
-                <div className="flex items-center justify-between">
-                  <b className="text-ink">{r.guestName ?? "Гость"}</b>
-                  <span className="text-[#c08a1e]" aria-label={`Оценка ${r.stars} из 5`}>
-                    {"★".repeat(r.stars)}
-                    <span className="text-line">{"★".repeat(5 - r.stars)}</span>
-                  </span>
-                </div>
-                {r.text && <p className="mt-1">{r.text}</p>}
-                <div className="mt-1 text-[12px] text-dim">{dayText(new Date(r.createdAt + 4 * 3600e3).toISOString().slice(0, 10))}</div>
-              </li>
-            ))}
+      {/* Подробности свёрнуты: открыл то, что интересно, страница не превращается в простыню */}
+      <div className="mt-4 card divide-y divide-line">
+        <Fold title="Заселение и отмена" hint={`с ${l.checkIn} · ${nightsFrom(l.minNights)}`}>
+          <ul className="space-y-1.5 text-[14px]">
+            <li>
+              Заезд с {l.checkIn}, выезд до {l.checkOut}
+            </li>
+            <li>Бронь {nightsFrom(l.minNights)}</li>
+            <li>{l.deposit > 0 ? `Залог ${rub(l.deposit)} при заселении, вернут при выезде` : "Без залога"}</li>
+            <li>{cancelText(l.cancelDays)}</li>
+            <li className="text-dim">Оплата хозяину при заселении</li>
           </ul>
-        </section>
-      )}
+        </Fold>
+        <Fold title="Правила дома" hint={RULES.filter(([k]) => l.rules[k]).length ? RULES.filter(([k]) => l.rules[k]).map(([, yes]) => yes.replace("Можно ", "")).join(", ") : "без детей, животных и вечеринок"}>
+          <div className="flex flex-wrap gap-2">
+            {RULES.map(([k, yes, no]) => (
+              <span key={k} className="chip">
+                {l.rules[k] ? yes : no}
+              </span>
+            ))}
+          </div>
+        </Fold>
+        {l.amenities.length > 0 && (
+          <Fold title="Удобства" hint={`${l.amenities.length}: ${l.amenities.slice(0, 2).join(", ")}${l.amenities.length > 2 ? "…" : ""}`}>
+            <div className="flex flex-wrap gap-2">
+              {l.amenities.map((a) => (
+                <span key={a} className="chip">
+                  {a}
+                </span>
+              ))}
+            </div>
+          </Fold>
+        )}
+        {l.reviewList.length > 0 && (
+          <Fold title={`Отзывы · ${l.reviewList.length}`} hint={l.stars != null ? `★ ${l.stars.toFixed(1).replace(".", ",")}` : ""}>
+            <ul className="space-y-3">
+              {l.reviewList.map((r) => (
+                <li key={r.id} className="text-[14px]">
+                  <div className="flex items-center justify-between">
+                    <b className="text-ink">{r.guestName ?? "Гость"}</b>
+                    <span className="text-[#c08a1e]" aria-label={`Оценка ${r.stars} из 5`}>
+                      {"★".repeat(r.stars)}
+                      <span className="text-line">{"★".repeat(5 - r.stars)}</span>
+                    </span>
+                  </div>
+                  {r.text && <p className="mt-0.5">{r.text}</p>}
+                  <div className="mt-0.5 text-[12px] text-dim">{dayText(new Date(r.createdAt + 4 * 3600e3).toISOString().slice(0, 10))}</div>
+                </li>
+              ))}
+            </ul>
+          </Fold>
+        )}
+      </div>
 
       {!data.own && <Complaint id={l.id} />}
 
@@ -454,16 +460,17 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           <h2 className="flex items-center gap-2 text-[17px] font-bold text-ink">
             <CalendarDays size={18} /> Даты
           </h2>
-          <DateRange
-            checkIn={checkIn || undefined}
-            checkOut={checkOut || undefined}
-            minIn={todaySamara()}
-            minOut={checkIn ? addDays(checkIn, 1) : todaySamara()}
-            onIn={(v) => {
-              setCheckIn(v ?? "");
-              if (v && (!checkOut || checkOut <= v)) setCheckOut(addDays(v, Math.max(1, l.minNights)));
+          <BookingCalendar
+            busy={busySet}
+            minNights={l.minNights}
+            checkIn={checkIn}
+            checkOut={checkOut}
+            priceWeekday={l.priceWeekday}
+            priceWeekend={l.priceWeekend}
+            onChange={(a, b) => {
+              setCheckIn(a);
+              setCheckOut(b);
             }}
-            onOut={(v) => setCheckOut(v ?? "")}
           />
           <div className="flex items-center justify-between">
             <span className="label mb-0">Гостей</span>
@@ -783,5 +790,121 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
           </div>
         ))}
     </>
+  );
+}
+
+/** Раскрывающаяся строка: заголовок и коротко главное, по нажатию — подробности */
+function Fold(props: { title: string; hint?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-ink">{props.title}</span>
+          {props.hint && !open && <span className="block truncate text-[13px] text-dim">{props.hint}</span>}
+        </span>
+        <ChevronDown size={18} className={`shrink-0 text-dim transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="px-4 pb-4">{props.children}</div>}
+    </div>
+  );
+}
+
+const MONTHS_NOM = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+
+/**
+ * Календарь брони: занятые ночи зачёркнуты, выбрать их нельзя. Первое нажатие — заезд, второе — выезд.
+ * Диапазон через занятую ночь не выбирается (такое нажатие начинает выбор заново).
+ * Это подсказка человеку; окончательно даты проверяет сервер одной транзакцией в базе — двойной брони не будет
+ */
+function BookingCalendar(props: { busy: Set<string>; minNights: number; checkIn: string; checkOut: string; priceWeekday: number; priceWeekend: number; onChange: (checkIn: string, checkOut: string) => void }) {
+  const today = todaySamara();
+  const last = addDays(today, 180);
+  const [month, setMonth] = useState(() => (props.checkIn || today).slice(0, 7));
+  const [y, m] = month.split("-").map(Number);
+  const first = `${month}-01`;
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lead = (new Date(`${first}T00:00:00Z`).getUTCDay() + 6) % 7; // понедельник — первый
+  const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`)];
+  const shift = (d: number) => {
+    const dt = new Date(Date.UTC(y, m - 1 + d, 1));
+    setMonth(dt.toISOString().slice(0, 7));
+  };
+  const free = (a: string, b: string) => {
+    for (let d = a; d < b; d = addDays(d, 1)) if (props.busy.has(d)) return false;
+    return true;
+  };
+  const tap = (d: string) => {
+    const { checkIn: a, checkOut: b } = props;
+    // Выбираем выезд, если заезд уже есть, выезда нет, день позже и ночи между ними свободны
+    if (a && !b && d > a && free(a, d)) {
+      if (Math.round((Date.parse(d) - Date.parse(a)) / 86_400_000) < props.minNights) return props.onChange(a, addDays(a, props.minNights) <= last && free(a, addDays(a, props.minNights)) ? addDays(a, props.minNights) : "");
+      return props.onChange(a, d);
+    }
+    if (props.busy.has(d)) return;
+    props.onChange(d, "");
+  };
+  const minMonth = today.slice(0, 7);
+  const maxMonth = last.slice(0, 7);
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <button className="grid size-9 place-items-center rounded-full text-ink disabled:opacity-30" disabled={month <= minMonth} onClick={() => shift(-1)} aria-label="Предыдущий месяц">
+          <ChevronDown size={18} className="rotate-90" />
+        </button>
+        <div className="text-[15px] font-semibold text-ink">
+          {MONTHS_NOM[m - 1]} {y}
+        </div>
+        <button className="grid size-9 place-items-center rounded-full text-ink disabled:opacity-30" disabled={month >= maxMonth} onClick={() => shift(1)} aria-label="Следующий месяц">
+          <ChevronDown size={18} className="-rotate-90" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 text-center text-[12px] text-dim">
+        {["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map((w) => (
+          <div key={w} className="py-1">
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-y-1">
+        {cells.map((d, i) => {
+          if (!d) return <div key={`e${i}`} />;
+          const past = d < today || d > last;
+          const busy = props.busy.has(d);
+          const a = props.checkIn;
+          const b = props.checkOut;
+          const isStart = d === a;
+          const isEnd = d === b;
+          const inside = !!a && !!b && d > a && d < b;
+          // День выезда может быть «занят» как ночь — выехать в него всё равно можно
+          const canEnd = !!a && !b && d > a && free(a, d);
+          const disabled = past || (busy && !canEnd);
+          const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+          return (
+            <button
+              key={d}
+              disabled={disabled}
+              onClick={() => tap(d)}
+              className={`relative mx-auto grid h-10 w-full place-items-center text-[14px] tabular-nums ${inside ? "bg-accent-soft" : ""} ${isStart ? "rounded-l-full" : ""} ${isEnd ? "rounded-r-full" : ""} ${isStart || isEnd ? "bg-accent-soft" : ""}`}
+              aria-label={`${Number(d.slice(8))} ${MONTHS_NOM[m - 1].toLowerCase()}${busy ? ", занято" : ""}`}
+              aria-pressed={isStart || isEnd}
+            >
+              <span
+                className={`grid size-9 place-items-center rounded-full ${isStart || isEnd ? "bg-accent font-bold text-white" : disabled ? (busy ? "text-dim line-through" : "text-line") : wd === 5 || wd === 6 ? "font-semibold text-ink" : "text-ink"}`}
+              >
+                {Number(d.slice(8))}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-dim">
+        <span>
+          <s>12</s> занято
+        </span>
+        {props.priceWeekend !== props.priceWeekday && <span>пт и сб — {rub(props.priceWeekend)}</span>}
+        <span>{props.checkIn && !props.checkOut ? "Теперь выберите день выезда" : !props.checkIn ? "Выберите день заезда" : ""}</span>
+      </div>
+    </div>
   );
 }
