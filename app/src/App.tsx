@@ -21,7 +21,8 @@ const TITLES: Record<Screen["name"], string> = { listing: "Жильё", edit: "�
 /** Параметр ссылки из бота: host, admin, chat_<id> (кнопка «Открыть переписку» в уведомлении) */
 const sp = startParam();
 const initialTab: Tab = sp === "host" ? "host" : sp === "admin" ? "admin" : sp.startsWith("chat_") ? "trips" : "search";
-const initialStack: Screen[] = sp.startsWith("chat_") ? [{ name: "chat", id: sp.slice(5) }] : [];
+// chat_<id> — переписка из уведомления; l_<id> — объявление по ссылке «Поделиться»
+const initialStack: Screen[] = sp.startsWith("chat_") ? [{ name: "chat", id: sp.slice(5) }] : /^l_[a-z0-9-]{1,36}$/i.test(sp) ? [{ name: "listing", id: sp.slice(2) }] : [];
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);

@@ -21,6 +21,9 @@ export interface Store {
   saveListing(l: Listing): Promise<void>;
   /** стереть объявление из базы насовсем (брони и жалобы остаются для истории) */
   purgeListing(id: string): Promise<void>;
+  /** счётчики объявления: просмотры и сколько людей добавили в избранное */
+  bumpStat(listingId: string, field: "views" | "favs", delta: number): Promise<void>;
+  getStats(ids: string[]): Promise<Record<string, { views: number; favs: number }>>;
   listListings(q?: { ownerId?: number; status?: ListingStatus[] }): Promise<Listing[]>;
 
   getBooking(id: string): Promise<Booking | undefined>;
@@ -152,6 +155,16 @@ export function fileStore(path: string): Store {
     async purgeListing(id) {
       delete db.listings[id];
       flush();
+    },
+    async bumpStat(id, field, delta) {
+      const k = `stat:${id}`;
+      const s = (db.kv[k] as { views: number; favs: number } | undefined) ?? { views: 0, favs: 0 };
+      s[field] = Math.max(0, s[field] + delta);
+      db.kv[k] = s;
+      flush();
+    },
+    async getStats(ids) {
+      return Object.fromEntries(ids.map((id) => [id, (db.kv[`stat:${id}`] as { views: number; favs: number } | undefined) ?? { views: 0, favs: 0 }]));
     },
     async listListings(q) {
       return Object.values(db.listings)

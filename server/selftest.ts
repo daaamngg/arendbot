@@ -785,5 +785,53 @@ await approveHost(HOST6);
   check("главный стёр удалённое насовсем", (await call("/admin/listing/purge", ADMIN, { id })).status === 200 && (await ctx.store.getListing(id)) === undefined);
 }
 
+// --- 13.11: номер в объявлении по выбору хозяина, просмотры и избранное ----------------------------
+{
+  const H9 = 189;
+  const G9 = 190;
+  const G10 = 191;
+  await call("/phone", H9, { phone: "+79270000189", consent: true });
+  await approveHost(H9);
+  await call("/phone", G9, { phone: "+79270000190", consent: true });
+  const id = (await call("/host/save", H9, { form: { ...form, address: "ул. Счётная, 9", description: "Светлая студия у парка, рядом остановка" } })).json.listing.id as string;
+  await call("/host/photos-request", H9, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: H9 }, body: { text: "", attachments: [img(951), img(952)] } } });
+  await call("/host/submit", H9, { id });
+  check("счётчики: объявление опубликовано", (await ctx.store.getListing(id))?.status === "active");
+
+  // Номер: по умолчанию скрыт, хозяин включил — виден гостю, но не попадает в поиск
+  check("номер хозяина по умолчанию скрыт", (await call("/listing", G9, { id })).json.listing.hostPhone === null);
+  await call("/host/save", H9, { id, form: { ...form, address: "ул. Счётная, 9", description: "Светлая студия у парка, рядом остановка", showPhone: true } });
+  check("хозяин разрешил — гость видит номер", (await call("/listing", G9, { id })).json.listing.hostPhone === "+79270000189");
+  check("флаг showPhone наружу не уходит", !("showPhone" in (await call("/listing", G9, { id })).json.listing));
+  check("в поиске номера нет", !JSON.stringify((await call("/search", G9, {})).json).includes("79270000189"));
+
+  // Просмотры: один человек — один раз в сутки, хозяин не считается
+  for (let i = 0; i < 3; i++) await call("/listing", G10, { id });
+  await call("/listing", H9, { id });
+  const row = (await call("/host/listings", H9)).json.listings.find((l: any) => l.id === id);
+  check("просмотры: двое разных = 2 (повторы и хозяин не считаются)", row.views === 2);
+
+  // Избранное: повторное «добавить» не накручивает, убрал — минус
+  await call("/favorite", G9, { id, on: true });
+  await call("/favorite", G9, { id, on: true });
+  await call("/favorite", G10, { id, on: true });
+  check("в избранном: 2 человека", (await call("/host/listings", H9)).json.listings.find((l: any) => l.id === id).favs === 2);
+  await call("/favorite", G10, { id, on: false });
+  await call("/favorite", G10, { id, on: false });
+  check("убрали из избранного — 1, ниже нуля не уходит", (await call("/host/listings", H9)).json.listings.find((l: any) => l.id === id).favs === 1);
+  check("чужой не видит счётчики хозяина", !(await call("/host/listings", G9)).json.listings?.some?.((l: any) => l.id === id));
+  check("в /me есть ник бота для ссылки «Поделиться»", (await call("/me", G9)).json.bot === "test_bot");
+}
+
+// --- 13.11: защита денег — номер карты и просьбы о переводе в переписке скрываются ----------------
+{
+  const { maskContacts: mc } = await import("../shared/trust.ts");
+  check("номер карты группами скрыт", mc("карта 2202 2063 1234 5678").text === "карта [скрыто]");
+  check("номер карты слитно скрыт", mc("2202206312345678").masked);
+  check("«скиньте на карту» и СБП скрыты", mc("скиньте на карту").text === "[скрыто]" && mc("по СБП 500").masked);
+  check("обычное сообщение с цифрами не трогаем", !mc("заезд 12.12, нас 2, цена 3500, 3 ночи").masked);
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

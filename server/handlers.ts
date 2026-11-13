@@ -107,6 +107,8 @@ function limited(key: string, perHour: number) {
   const list = (hits.get(key) ?? []).filter((x) => t - x < 3600_000);
   list.push(t);
   hits.set(key, list);
+  // Чистим старые записи, чтобы память не росла, пока копия сервера живёт долго
+  if (hits.size > 20_000) for (const [k, v] of hits) if (!v.length || t - v[v.length - 1] > 3600_000) hits.delete(k);
   return list.length > perHour;
 }
 
@@ -273,7 +275,7 @@ function card(l: Listing, range?: { checkIn: string; checkOut: string }): Listin
 }
 
 function publicListing(l: Listing, bookings: Booking[], reviews: Review[], favorite: boolean, t: number): PublicListing {
-  const { flat: _a, ownerId: _o, closed: _c, moderatorNote: _m, checked: _ch, botChecked: _bc, botReasons: _br, ...rest } = l;
+  const { flat: _a, ownerId: _o, closed: _c, moderatorNote: _m, checked: _ch, botChecked: _bc, botReasons: _br, approvedPrice: _ap, showPhone: _sp, ...rest } = l;
   const from = todaySamara(t);
   const to = addDays(from, 120);
   const busy = [...busyNights(l, bookings)].filter((d) => d >= from && d < to).sort();
@@ -285,6 +287,8 @@ function publicListing(l: Listing, bookings: Booking[], reviews: Review[], favor
     // Отзывы без id гостя — только имя, как в MAX
     reviewList: reviews.slice(0, 20).map((r) => ({ id: r.id, guestName: r.guestName, stars: r.stars, text: r.text, createdAt: r.createdAt })),
     favorite,
+    // Номер подставляет маршрут /listing, если хозяин разрешил; по умолчанию его нет
+    hostPhone: null,
   };
 }
 
@@ -427,6 +431,7 @@ function applyForm(l: Listing, f: any) {
   if (typeof f?.district === "string") l.district = str(f.district, 60);
   if (typeof f?.address === "string") l.address = str(f.address, 200);
   if (typeof f?.flat === "string") l.flat = str(f.flat, 120);
+  if (typeof f?.showPhone === "boolean") l.showPhone = f.showPhone;
   if (f?.rooms !== undefined) l.rooms = int(f.rooms, 1, 10, 1);
   if (f?.area !== undefined) l.area = intOrNull(f.area, 5, 1000);
   if (f?.floor !== undefined) l.floor = intOrNull(f.floor, -1, 100);
@@ -581,6 +586,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         user: { id: uid, name: user.name, phone: user.phone, consent: user.consentAt != null },
         admin: await isAdmin(ctx, uid),
         demo: !!ctx.config.demo || ctx.config.allowBrowser,
+        bot: ctx.config.botUsername ?? null,
         owner: await isOwner(ctx, uid),
         host: await hostStatusOf(ctx, user),
         hostNote: user.hostStatus === "rejected" ? (user.hostApp?.note ?? null) : null,
@@ -603,7 +609,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       let verified = false;
       if (body?.contact) {
         const r = checkContact(body.contact, ctx.config.botToken);
-        const sameNumber = String((body.contact as any).phone ?? "").replace(/\D/g, "").slice(-10) === phone.replace(/\D/g, "").slice(-10);
+        const sameNumber = String((body.contact as any).phone ?? (body.contact as any).phone_number ?? "").replace(/\D/g, "").slice(-10) === phone.replace(/\D/g, "").slice(-10);
         verified = r.verified && sameNumber;
         // Для наладки: какая схема подписи подошла и какие поля прислал MAX — без цифр номера
         await ctx.store.kvSet("contactcheck:last", { at: t, verified, scheme: r.scheme, fields: r.fields, sameNumber });
@@ -650,7 +656,12 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       // Гость видит только опубликованное; хозяин и модератор — своё в любом статусе (предпросмотр)
       if (!l || l.status === "deleted" || (l.status !== "active" && l.ownerId !== uid && !(await isAdmin(ctx, uid)))) return fail(404, "not found");
       const [bookings, reviews] = await Promise.all([ctx.store.listBookings({ listingId: l.id, status: HOLDING }), ctx.store.listReviews(l.id)]);
-      return ok({ listing: publicListing(l, bookings, reviews, !!user.favorites?.includes(l.id), t), own: l.ownerId === uid });
+      // Просмотры: один человек — один просмотр в сутки; хозяин себя не накручивает
+      if (l.status === "active" && l.ownerId !== uid && !(await ctx.store.seenRecently(`view:${l.id}:${uid}:${todaySamara(t)}`, 26 * 3600_000))) await ctx.store.bumpStat(l.id, "views", 1);
+      // Номер хозяина — только если он сам разрешил показывать его до брони
+      // и не больше 30 раз в час на человека — чтобы номера хозяев не собирали пачкой
+      const hostPhone = l.showPhone && l.ownerId !== uid && !limited(`hp:${uid}`, 30) ? ((await ctx.store.getUser(l.ownerId))?.phone ?? null) : null;
+      return ok({ listing: { ...publicListing(l, bookings, reviews, !!user.favorites?.includes(l.id), t), hostPhone }, own: l.ownerId === uid });
     }
 
     case "/chat/open": {
@@ -817,10 +828,13 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const l = await ctx.store.getListing(str(body?.id, 16));
       if (!l) return fail(404, "not found");
       const set = new Set(user.favorites ?? []);
+      const was = set.has(l.id);
       if (body?.on === true) set.add(l.id);
       else set.delete(l.id);
       user.favorites = [...set].slice(-100);
       await ctx.store.saveUser(user);
+      // Счётчик «в избранном» — только при настоящем изменении, повторное нажатие не накручивает
+      if (set.has(l.id) !== was && l.ownerId !== uid) await ctx.store.bumpStat(l.id, "favs", set.has(l.id) ? 1 : -1);
       return ok({ favorite: set.has(l.id) });
     }
 
@@ -929,6 +943,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/host/listings": {
       const [listings, bookings] = await Promise.all([ctx.store.listListings({ ownerId: uid }), ctx.store.listBookings({ ownerId: uid, status: ["requested"] })]);
+      const stats = await ctx.store.getStats(listings.filter((l) => l.status !== "deleted").map((l) => l.id));
       return ok({
         listings: listings.filter((l) => l.status !== "deleted").map((l) => ({
           id: l.id,
@@ -939,6 +954,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
           photo: l.photos[0]?.url ?? null,
           priceFrom: Math.min(l.priceWeekday, l.priceWeekend),
           requests: bookings.filter((b) => b.listingId === l.id).length,
+          views: stats[l.id]?.views ?? 0,
+          favs: stats[l.id]?.favs ?? 0,
         })),
       });
     }

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, SlidersHorizontal, Star, Users } from "lucide-react";
+import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, Share2, SlidersHorizontal, Star, Users } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { CANCEL_OPTIONS, COMPLAINT_REASONS, type ListingCard, type PublicListing } from "../../../shared/types.ts";
 import { api, errorText, type BookingView, type Me, type SearchQuery } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
-import { ask, tell } from "../ui/dialog.tsx";
+import { ask, askText, tell } from "../ui/dialog.tsx";
 import { haptic } from "../lib/max.ts";
 import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
 
@@ -340,6 +340,9 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
 
       <div className="flex items-start gap-3">
         <h1 className="flex-1 text-[22px] leading-tight font-bold text-ink">{l.title}</h1>
+        <button className="grid size-11 shrink-0 place-items-center rounded-full border border-line bg-surface text-dim" aria-label="Поделиться" onClick={() => shareListing(props.me.bot, l.id, l.title, rub(Math.min(l.priceWeekday, l.priceWeekend)), l.locality)}>
+          <Share2 size={19} />
+        </button>
         {!data.own && (
           <button
             className={`grid size-11 shrink-0 place-items-center rounded-full border border-line bg-surface ${fav ? "text-bad" : "text-dim"}`}
@@ -382,9 +385,17 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
       </ul>
 
       {!data.own && (
-        <button className="btn btn-soft mt-4 w-full" onClick={() => props.onChat(l.id)}>
-          <MessageCircle size={18} /> Задать вопрос хозяину
-        </button>
+        <div className={`mt-4 grid gap-2 ${l.hostPhone ? "grid-cols-2" : "grid-cols-1"}`}>
+          <button className="btn btn-soft w-full" onClick={() => props.onChat(l.id)}>
+            <MessageCircle size={18} /> {l.hostPhone ? "Написать" : "Задать вопрос хозяину"}
+          </button>
+          {/* Номер хозяина — только если он сам разрешил показывать его до брони */}
+          {l.hostPhone && (
+            <a className="btn btn-line w-full" href={`tel:${l.hostPhone}`}>
+              <Phone size={18} /> Позвонить
+            </a>
+          )}
+        </div>
       )}
 
       {l.description && <p className="mt-4 whitespace-pre-line text-[15px]">{l.description}</p>}
@@ -901,4 +912,28 @@ function BookingCalendar(props: { busy: Set<string>; minNights: number; checkIn:
       </div>
     </div>
   );
+}
+
+/**
+ * «Поделиться»: ссылка открывает это объявление прямо в боте. На телефоне — системное окно «Отправить»,
+ * где есть чаты MAX; если его нет — копируем ссылку и подсказываем вставить её в чат
+ */
+async function shareListing(bot: string | null, id: string, title: string, price: string, locality: string) {
+  const url = bot ? `https://max.ru/${bot}?startapp=l_${id}` : location.href;
+  const text = `${title}, ${locality}, от ${price} за ночь`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      return;
+    }
+  } catch (e) {
+    // Человек закрыл окно — это не ошибка
+    if ((e as Error)?.name === "AbortError") return;
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    tell("Ссылка скопирована", "Вставьте её в любой чат MAX. По ссылке объявление откроется прямо в боте.");
+  } catch {
+    await askText("Ссылка на объявление", url, { text: "Скопируйте и отправьте в чат MAX.", ok: "Готово" });
+  }
 }

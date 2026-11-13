@@ -40,7 +40,8 @@ export const hasNativeBack = () => typeof app()?.BackButton?.show === "function"
 export const initData = () => app()?.initData ?? "";
 export const maxUser = () => app()?.initDataUnsafe?.user;
 /** Параметр из ссылки max.ru/<бот>?startapp=<...> — например «admin» из кнопки «Открыть заявки» */
-export const startParam = () => app()?.initDataUnsafe?.start_param ?? "";
+// В обычном браузере (демо) тот же параметр можно передать в адресе: ?startapp=l_<id>
+export const startParam = () => app()?.initDataUnsafe?.start_param || new URLSearchParams(location.search).get("startapp") || "";
 
 /** Внешняя ссылка: в MAX — через его браузер (иначе мини-приложение уйдёт со страницы и вернуться будет нельзя) */
 export function openExternal(url: string) {

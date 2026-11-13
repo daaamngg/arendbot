@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Camera, ChevronDown, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Camera, ChevronDown, Eye, Heart, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { MAX_PHOTOS, listingTitle } from "../../../shared/catalog.ts";
 import { addDays, guestsText, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { hasContacts } from "../../../shared/trust.ts";
@@ -136,6 +136,17 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
                 {r.requests > 0 && <span className="text-[13px] font-semibold text-accent">запросов: {r.requests}</span>}
               </div>
               {r.moderatorNote && r.status === "rejected" && <p className="mt-1 text-[13px] text-bad">{r.moderatorNote}</p>}
+              {/* Просмотры (один человек — один раз в сутки) и сколько людей сохранили в избранное */}
+              {r.status === "active" && (
+                <div className="mt-1.5 flex items-center gap-2 text-[13px] text-dim tabular-nums">
+                  <span className="flex min-w-[3.5rem] items-center gap-1" title="Просмотры">
+                    <Eye size={14} aria-hidden /> {r.views} <span className="sr-only">просмотров</span>
+                  </span>
+                  <span className="flex items-center gap-1" title="В избранном">
+                    <Heart size={14} aria-hidden /> {r.favs} <span className="sr-only">в избранном</span>
+                  </span>
+                </div>
+              )}
               <div className="mt-2 flex gap-4 text-[14px] font-semibold text-accent">
                 <button onClick={() => props.onEdit(r.id)}>Изменить</button>
                 <button onClick={() => props.onCalendar(r.id)}>Календарь</button>
@@ -481,6 +492,9 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           <Row label="Улица и дом" hint="Видно в объявлении">
             <input id="f-adr" className="row-input" value={form.address ?? ""} onChange={(e) => set({ address: e.target.value })} placeholder="ул. Ленина, 12" aria-label="Улица и дом" />
           </Row>
+          <Row label="Ваш номер" hint={form.showPhone ? "Виден в объявлении" : "Гость увидит после брони"}>
+            <Toggle on={!!form.showPhone} onChange={(v) => set({ showPhone: v })} label="Показывать номер в объявлении" />
+          </Row>
           <Row label="Квартира" hint="Гость увидит после подтверждения брони">
             <input className="row-input" value={form.flat ?? ""} onChange={(e) => set({ flat: e.target.value })} placeholder="кв. 45, подъезд 2" aria-label="Квартира и подъезд" />
           </Row>
@@ -778,5 +792,14 @@ export function HostCalendar(props: { id: string }) {
         </li>
       </ul>
     </>
+  );
+}
+
+/** Переключатель «вкл / выкл» */
+function Toggle(props: { on: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={props.on} aria-label={props.label} onClick={() => props.onChange(!props.on)} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${props.on ? "bg-accent" : "bg-line"}`}>
+      <span className={`absolute top-0.5 left-0 size-6 rounded-full bg-white shadow transition-transform ${props.on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+    </button>
   );
 }

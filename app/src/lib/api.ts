@@ -74,6 +74,8 @@ export interface Me {
   owner: boolean;
   /** демо или разработка: код команды можно ввести прямо в приложении */
   demo: boolean;
+  /** ник бота — для ссылки «Поделиться» */
+  bot: string | null;
   unread: number;
   /** может ли сдавать: заявка не подана / ждёт / одобрена / отклонена */
   host: "none" | "pending" | "approved" | "rejected";
@@ -148,6 +150,9 @@ export interface HostListingRow {
   photo: string | null;
   priceFrom: number;
   requests: number;
+  /** просмотры (один человек — один раз в сутки) и сколько людей добавили в избранное */
+  views: number;
+  favs: number;
 }
 
 export interface SearchQuery {

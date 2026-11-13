@@ -78,6 +78,8 @@ export interface Listing {
   botReasons?: string[];
   /** минимальная цена на момент последней проверки — резкое снижение после неё бот считает «приманкой» */
   approvedPrice?: number;
+  /** хозяин сам разрешил показывать свой номер в объявлении до брони */
+  showPhone?: boolean;
   /** сумма и число оценок гостей */
   rating?: { sum: number; count: number };
   createdAt: number;
@@ -314,11 +316,13 @@ export interface ListingCard {
 }
 
 /** Объявление для гостя: всё, кроме квартиры и контактов */
-export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moderatorNote" | "checked" | "botChecked" | "botReasons" | "approvedPrice"> & {
+export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moderatorNote" | "checked" | "botChecked" | "botReasons" | "approvedPrice" | "showPhone"> & {
   title: string;
   /** занятые ночи на ближайшие 120 дней */
   busy: string[];
   stars: number | null;
   reviewList: Pick<Review, "id" | "guestName" | "stars" | "text" | "createdAt">[];
   favorite: boolean;
+  /** номер хозяина — только если он сам разрешил показывать его до брони */
+  hostPhone: string | null;
 };

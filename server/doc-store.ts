@@ -90,6 +90,18 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
     getListing: (id) => db.get<Listing>("listing", id),
     saveListing: (l) => db.put(listingRow(l)),
     purgeListing: (id) => db.del("listing", id),
+    async bumpStat(id, field, delta) {
+      // В транзакции: два просмотра в одну секунду из разных копий сервера не потеряются
+      await db.tx(async (t) => {
+        const s = (await t.get<{ views: number; favs: number }>("stat", id)) ?? { views: 0, favs: 0 };
+        s[field] = Math.max(0, s[field] + delta);
+        await t.put({ kind: "stat", id, data: s });
+      });
+    },
+    async getStats(ids) {
+      const all = await Promise.all(ids.map(async (id) => [id, (await db.get<{ views: number; favs: number }>("stat", id)) ?? { views: 0, favs: 0 }] as const));
+      return Object.fromEntries(all);
+    },
     async listListings(q) {
       let list: Listing[];
       if (q?.ownerId != null) list = await db.find<Listing>("listing", "g1", s(q.ownerId));
