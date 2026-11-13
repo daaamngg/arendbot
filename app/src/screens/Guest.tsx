@@ -652,10 +652,13 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
 
   const cancel = async (b: BookingView) => {
     if (!(await ask(b.status === "confirmed" ? "Отменить подтверждённую бронь?" : "Отменить запрос?", { text: b.status === "confirmed" ? "Хозяин получит сообщение." : undefined, ok: "Отменить", danger: true }))) return;
+    // Отмена видна сразу, сервер догоняет; не получилось — вернём как было
+    setList((x) => x?.map((y) => (y.id === b.id ? { ...y, status: "cancelled", cancelledBy: "guest" } : y)) ?? x);
     try {
       await api.cancel(b.id);
       load();
     } catch (e) {
+      load();
       tell("Не получилось", errorText(e));
     }
   };

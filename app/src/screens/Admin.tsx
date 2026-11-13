@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flag, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { ChevronRight, Flag, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
 import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
@@ -26,7 +26,7 @@ const SECTIONS: { id: Section; title: string; owner?: boolean }[] = [
 
 const when = (ms: number) => new Date(ms).toLocaleString("ru-RU", { timeZone: "Europe/Samara", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function AdminScreen(props: { owner: boolean }) {
+export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string) => void }) {
   const [section, setSection] = useState<Section>("review");
   const sections = SECTIONS.filter((x) => !x.owner || props.owner);
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -66,7 +66,7 @@ export function AdminScreen(props: { owner: boolean }) {
 
       {section === "apps" && <Applications act={act} />}
       {section === "bookings" && props.owner && <Bookings act={act} />}
-      {section === "complaints" && <Complaints act={act} owner={props.owner} />}
+      {section === "complaints" && <Complaints act={act} owner={props.owner} onOpen={props.onOpen} />}
       {section === "review" && <Review act={act} />}
       {section === "listings" && <AllListings act={act} />}
       {section === "people" && <People act={act} />}
@@ -133,7 +133,7 @@ function Applications(props: { act: Act }) {
 
 // --- Жалобы гостей ---------------------------------------------------------------------
 
-function Complaints(props: { act: Act; owner: boolean }) {
+function Complaints(props: { act: Act; owner: boolean; onOpen: (id: string) => void }) {
   const [complaints, setComplaints] = useState<ComplaintRow[] | null>(null);
   const load = () => api.pending().then((r) => setComplaints(r.complaints), () => setComplaints((x) => x ?? []));
   // Новое приходит само, без перезагрузки
@@ -155,27 +155,37 @@ function Complaints(props: { act: Act; owner: boolean }) {
       </div>
       <ul className="space-y-3">
             {complaints.map((c) => (
-              <li key={c.id} className="card p-4 text-[14px]">
-                <div className="font-semibold text-ink">{c.title}</div>
-                <div className="text-bad">{c.reasonTitle}</div>
-                {c.text && <p className="mt-1">«{c.text}»</p>}
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button className="btn btn-line min-h-11" onClick={() => props.act(() => api.resolveComplaint(c.id, "hide"), "Объявление скрыто.", load)}>
-                    Скрыть объявление
-                  </button>
-                  <button className="btn btn-line min-h-11" onClick={() => props.act(() => api.resolveComplaint(c.id, "ok"), "Жалоба закрыта.", load)}>
-                    Всё в порядке
-                  </button>
-                </div>
-                {props.owner && <button
-                  className="mt-2 w-full text-[14px] font-semibold text-bad"
-                  onClick={async () => (await ask("Заблокировать хозяина?", { text: "Все его объявления снимутся, гостям придёт отмена.", ok: "Заблокировать", danger: true })) && props.act(() => api.resolveComplaint(c.id, "ban"), "Хозяин заблокирован.", load)}
-                >
-                  Заблокировать хозяина
-                </button>}
-                <button className="mt-2 w-full text-[14px] font-semibold text-dim" onClick={() => props.act(() => api.resolveComplaint(c.id, "dismiss"), "Жалоба удалена.", load)}>
-                  Удалить жалобу (пустая или ложная)
+              <li key={c.id} className="card p-3.5 text-[14px]">
+                {/* Сначала посмотреть само объявление — по названию открывается как у гостя */}
+                <button className="flex w-full items-center justify-between gap-2 text-left" onClick={() => props.onOpen(c.listingId)}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-ink">{c.title}</span>
+                    <span className="block text-[13px] text-bad">{c.reasonTitle}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-0.5 text-[13px] font-semibold text-accent">
+                    Открыть <ChevronRight size={16} />
+                  </span>
                 </button>
+                {c.text && <p className="mt-1.5 text-text">«{c.text}»</p>}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-ink" onClick={() => props.act(() => api.resolveComplaint(c.id, "hide"), "Объявление скрыто.", load)}>
+                    Скрыть
+                  </button>
+                  <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-ink" onClick={() => props.act(() => api.resolveComplaint(c.id, "ok"), "Жалоба закрыта.", load)}>
+                    Всё ок
+                  </button>
+                  <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-dim" onClick={() => props.act(() => api.resolveComplaint(c.id, "dismiss"), "Жалоба удалена.", load)}>
+                    Ложная
+                  </button>
+                  {props.owner && (
+                    <button
+                      className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
+                      onClick={async () => (await ask("Заблокировать хозяина?", { text: "Все его объявления снимутся, гостям придёт отмена.", ok: "Заблокировать", danger: true })) && props.act(() => api.resolveComplaint(c.id, "ban"), "Хозяин заблокирован.", load)}
+                    >
+                      Бан
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
       </ul>

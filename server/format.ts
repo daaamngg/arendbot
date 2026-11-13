@@ -117,7 +117,7 @@ export const REJECT_REASONS: Record<string, string> = {
  * live — уже в поиске (проверка после публикации): кнопки «Всё хорошо» и «Скрыть»;
  * held — ждёт проверки до показа, причины подозрения в тексте
  */
-export function toModerator(l: Listing, ownerPhone: string | null, again: boolean, live = false, held: string[] = []): OutMessage {
+export function toModerator(l: Listing, ownerPhone: string | null, again: boolean, live = false, held: string[] = [], open?: Button[][]): OutMessage {
   const m = moderatorBody(l, ownerPhone);
   const head = live
     ? again
@@ -128,40 +128,38 @@ export function toModerator(l: Listing, ownerPhone: string | null, again: boolea
     ...m,
     text: `${head}\n${m.text}`,
     buttons: [
+      ...(open ?? []),
       [{ type: "callback", text: live ? "Всё хорошо" : "Одобрить", payload: `mod:ok:${l.id}` }],
+      // Причины отказа одним рядом
       [
-        { type: "callback", text: live ? "Скрыть: фото" : "Плохие фото", payload: `mod:no:${l.id}:photos` },
-        { type: "callback", text: live ? "Скрыть: данные" : "Нет данных", payload: `mod:no:${l.id}:data` },
-      ],
-      [
-        { type: "callback", text: "Похоже на обман", payload: `mod:no:${l.id}:fraud` },
+        { type: "callback", text: "Фото", payload: `mod:no:${l.id}:photos` },
+        { type: "callback", text: "Данные", payload: `mod:no:${l.id}:data` },
+        { type: "callback", text: "Обман", payload: `mod:no:${l.id}:fraud` },
         { type: "callback", text: "Другое", payload: `mod:no:${l.id}:other` },
       ],
     ],
   };
 }
 
-export function complaintToAdmins(c: Complaint, l: Listing, reasonTitle: string, count: number): OutMessage {
+export function complaintToAdmins(c: Complaint, l: Listing, reasonTitle: string, count: number, open?: Button[][]): OutMessage {
   return {
-    text: [
-      `Жалоба на объявление${count > 1 ? ` (всего жалоб: ${count})` : ""}`,
-      `${listingTitle(l)}, ${where(l)}`,
-      `Причина: ${reasonTitle}`,
-      ...(c.text ? [`«${c.text}»`] : []),
-    ].join("\n"),
+    text: [`Жалоба${count > 1 ? ` (${count})` : ""}: ${reasonTitle}`, `${listingTitle(l)}, ${where(l)}`, ...(c.text ? [`«${c.text}»`] : [])].join("\n"),
     buttons: [
+      // Сначала посмотреть объявление, потом решить
+      ...(open ?? []),
       [
-        { type: "callback", text: "Скрыть объявление", payload: `adm:hide:${l.id}:${c.id}` },
-        { type: "callback", text: "Всё в порядке", payload: `adm:ok:${c.id}` },
+        { type: "callback", text: "Скрыть", payload: `adm:hide:${l.id}:${c.id}` },
+        { type: "callback", text: "Всё ок", payload: `adm:ok:${c.id}` },
+        { type: "callback", text: "Бан", payload: `adm:ban:${l.ownerId}:${c.id}` },
       ],
-      [{ type: "callback", text: "Заблокировать хозяина", payload: `adm:ban:${l.ownerId}:${c.id}` }],
     ],
   };
 }
 
 /** Сообщение в переписке — второй стороне. Ответить можно прямо здесь, функцией «Ответить» */
-export function chatNotify(l: Listing, from: "guest" | "owner", text: string, guestName: string | null, open?: Button[][]): OutMessage {
-  const who = from === "guest" ? `Вопрос от гостя${guestName ? ` ${guestName}` : ""}` : "Ответ хозяина";
+export function chatNotify(l: Listing, from: "guest" | "owner", text: string, guestName: string | null, open?: Button[][], unread = 1): OutMessage {
+  const who =
+    (from === "guest" ? `Сообщение от гостя${guestName ? ` ${guestName}` : ""}` : "Ответ хозяина") + (unread > 1 ? ` (непрочитанных: ${unread})` : "");
   return {
     text: [
       ...(isRisky(text) ? ["ОСТОРОЖНО, похоже на обман. Не переходите по ссылкам, не называйте коды из СМС и не переводите деньги до подтверждения брони в боте.", ""] : []),

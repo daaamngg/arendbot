@@ -224,16 +224,15 @@ async function send(ctx: Ctx, uid: number, msg: OutMessage, key?: string) {
 }
 
 async function editAll(ctx: Ctx, key: string, msg: OutMessage) {
-  for (const mid of await ctx.store.getMessageIds(key)) {
-    await ctx.max.edit(mid, msg).catch((e) => ctx.log(`edit ${mid}: ${(e as Error).message}`));
-  }
+  // Все копии (у каждого модератора своя) правим одновременно
+  await Promise.all((await ctx.store.getMessageIds(key)).map((mid) => ctx.max.edit(mid, msg).catch((e) => ctx.log(`edit ${mid}: ${(e as Error).message}`))));
 }
 
 async function notifyAdmins(ctx: Ctx, msg: OutMessage, key?: string) {
   const admins = await ctx.store.getAdmins();
   // Без текста сообщения: в нём бывают имена и телефоны, а логи в облаке хранятся
   if (!admins.length) ctx.log("Нет модераторов: отправьте боту код главного. Сообщение для команды не доставлено");
-  for (const a of admins) await send(ctx, a, msg, key);
+  await Promise.all(admins.map((a) => send(ctx, a, msg, key)));
 }
 
 /**
@@ -314,7 +313,7 @@ async function publishOrHold(ctx: Ctx, l: Listing, ownerPhone: string | null, ag
   await ctx.store.saveListing(l);
   if (live) await audit(ctx, BOT_ID, again ? "бот одобрил изменения" : "бот одобрил объявление", `${listingTitle(l)} (${l.id})`);
   // Модератору пишем только когда нужна его проверка
-  else await notifyAdmins(ctx, toModerator(l, ownerPhone, again, false, held), `l-${l.id}`);
+  else await notifyAdmins(ctx, toModerator(l, ownerPhone, again, false, held, appButton(ctx, "Открыть объявление", `l_${l.id}`)), `l-${l.id}`);
   return live;
 }
 
@@ -373,23 +372,10 @@ async function postChat(ctx: Ctx, th: ChatThread, from: "guest" | "owner", raw: 
   if (from === "guest") th.unreadOwner += 1;
   else th.unreadGuest += 1;
   await ctx.store.saveThread(th);
-  const to = from === "guest" ? th.ownerId : th.guestId;
-  const toOwner = from === "guest";
-  // Не засыпаем уведомлениями: если человек не прочитал прошлое, а будили меньше 2 минут назад — молчим.
-  // Сообщение всё равно сохранено и видно в приложении
-  const lastWake = toOwner ? th.notifiedOwnerAt : th.notifiedGuestAt;
-  const unreadBefore = (toOwner ? th.unreadOwner : th.unreadGuest) - 1;
-  if (!(unreadBefore > 0 && lastWake && t - lastWake < 120_000)) {
-    const guest = toOwner ? await ctx.store.getUser(th.guestId) : undefined;
-    const mid = await send(ctx, to, chatNotify(l, from, text, guest?.name ?? null, appButton(ctx, "Открыть переписку", `chat_${th.id}`)));
-    // Запомнить, каким сообщением бота разбудили собеседника — если автор удалит, поправим и его
-    if (mid) await ctx.store.kvSet(`cmid:${msgId}`, mid);
-    // Ответ на это уведомление в чате MAX уйдёт в эту же переписку от имени получателя
-    if (mid) await ctx.store.setReplyTarget(mid, { threadId: th.id, as: toOwner ? "owner" : "guest" });
-    if (toOwner) th.notifiedOwnerAt = t;
-    else th.notifiedGuestAt = t;
-    await ctx.store.saveThread(th);
-  }
+  // В личку MAX — не сразу: если собеседник не прочитал за 30 минут, таймер пришлёт одно напоминание
+  // (иначе каждое «здравствуйте» дублируется в личку и это спам). Прочитал в приложении — напоминания не будет
+  const wakeKey = `chatwake:${th.id}:${from === "guest" ? "owner" : "guest"}`;
+  if (!(await ctx.store.kvGet(wakeKey))) await ctx.store.kvSet(wakeKey, { at: t });
   return { text, masked };
 }
 
@@ -494,13 +480,12 @@ async function decide(ctx: Ctx, b: Booking, accept: boolean): Promise<string> {
   b.status = accept ? "confirmed" : "declined";
   b.decidedAt = now(ctx);
   await ctx.store.saveBooking(b);
-  await editAll(ctx, `b-${b.id}`, requestDecided(b, l));
   if (accept) {
     const owner = await ctx.store.getUser(l.ownerId);
-    await send(ctx, b.guestId, confirmedToGuest(b, l, owner?.phone ?? null));
+    await Promise.all([editAll(ctx, `b-${b.id}`, requestDecided(b, l)), send(ctx, b.guestId, confirmedToGuest(b, l, owner?.phone ?? null))]);
     return "Бронь принята. Телефон гостя в сообщении.";
   }
-  await send(ctx, b.guestId, notConfirmedToGuest(b, l, appButton(ctx, "Найти другое жильё")));
+  await Promise.all([editAll(ctx, `b-${b.id}`, requestDecided(b, l)), send(ctx, b.guestId, notConfirmedToGuest(b, l, appButton(ctx, "Найти другое жильё")))]);
   return "Запрос отклонён.";
 }
 
@@ -521,8 +506,7 @@ async function cancel(ctx: Ctx, b: Booking, by: "guest" | "owner") {
   b.decidedAt = now(ctx);
   await ctx.store.saveBooking(b);
   if (!l) return;
-  await editAll(ctx, `b-${b.id}`, requestDecided(b, l));
-  await send(ctx, by === "guest" ? b.ownerId : b.guestId, cancelledToOther(b, l, by === "guest"));
+  await Promise.all([editAll(ctx, `b-${b.id}`, requestDecided(b, l)), send(ctx, by === "guest" ? b.ownerId : b.guestId, cancelledToOther(b, l, by === "guest"))]);
 }
 
 /** Бронь для экранов приложения: телефон и адрес — только после подтверждения */
@@ -660,7 +644,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       if (!l || l.status === "deleted" || (l.status !== "active" && l.ownerId !== uid && !(await isAdmin(ctx, uid)))) return fail(404, "not found");
       const [bookings, reviews] = await Promise.all([ctx.store.listBookings({ listingId: l.id, status: HOLDING }), ctx.store.listReviews(l.id)]);
       // Просмотры: один человек — один просмотр в сутки; хозяин себя не накручивает
-      if (l.status === "active" && l.ownerId !== uid && !(await ctx.store.seenRecently(`view:${l.id}:${uid}:${todaySamara(t)}`, 26 * 3600_000))) await ctx.store.bumpStat(l.id, "views", 1);
+      if (l.status === "active" && l.ownerId !== uid && !(await isAdmin(ctx, uid)) && !(await ctx.store.seenRecently(`view:${l.id}:${uid}:${todaySamara(t)}`, 26 * 3600_000))) await ctx.store.bumpStat(l.id, "views", 1);
       // Номер хозяина — только если он сам разрешил показывать его до брони
       // и не больше 30 раз в час на человека — чтобы номера хозяев не собирали пачкой
       const hostPhone = l.showPhone && l.ownerId !== uid && !limited(`hp:${uid}`, 30) ? ((await ctx.store.getUser(l.ownerId))?.phone ?? null) : null;
@@ -718,10 +702,14 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/chat/thread": {
       const th = await ctx.store.getThread(str(body?.id, 16));
       if (!th || (th.guestId !== uid && th.ownerId !== uid)) return fail(404, "not found");
-      // Открыл — прочитал
-      if (th.ownerId === uid && th.unreadOwner) th.unreadOwner = 0;
-      else if (th.guestId === uid && th.unreadGuest) th.unreadGuest = 0;
-      await ctx.store.saveThread(th);
+      // Открыл — прочитал: счётчик в ноль, напоминание в личку отменяется. Пишем в базу, только если было что сбросить
+      const side = th.ownerId === uid ? "owner" : "guest";
+      if (side === "owner" ? th.unreadOwner : th.unreadGuest) {
+        if (side === "owner") th.unreadOwner = 0;
+        else th.unreadGuest = 0;
+        await ctx.store.saveThread(th);
+        await ctx.store.kvSet(`chatwake:${th.id}:${side}`, undefined);
+      }
       return ok({ thread: await threadView(ctx, th, uid), messages: await messagesFor(ctx, th, uid) });
     }
 
@@ -862,7 +850,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const c: Complaint = { id: randomUUID().slice(0, 8), listingId: l.id, userId: uid, reason: reason.id, text: str(body?.text, 500), createdAt: t };
       await ctx.store.saveComplaint(c);
       const count = (await ctx.store.listComplaints({ listingId: l.id, open: true })).length;
-      await notifyAdmins(ctx, complaintToAdmins(c, l, reason.title, count), `c-${c.id}`);
+      await notifyAdmins(ctx, complaintToAdmins(c, l, reason.title, count, appButton(ctx, "Открыть объявление", `l_${l.id}`)), `c-${c.id}`);
       return ok({ ok: true });
     }
 
@@ -1031,7 +1019,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       l.submittedAt = t;
       l.updatedAt = t;
       const live = await publishOrHold(ctx, l, user.phone, l.status !== "draft");
-      await send(ctx, uid, live ? publishedToOwner(l) : heldToOwner(l));
+      // В личку не пишем: статус («В поиске» / «На проверке») виден в приложении сразу
       return ok({ listing: l, live });
     }
 
@@ -1564,7 +1552,9 @@ export async function processUpdate(ctx: Ctx, update: any) {
       const mine = th && (target.as === "owner" ? th.ownerId === uid : th.guestId === uid);
       if (!th || !mine || u?.blocked) return;
       const r = await postChat(ctx, th, target.as, text);
-      await send(ctx, uid, { text: typeof r === "string" ? "Не получилось отправить." : r.masked ? "Отправлено. Контакты в сообщениях скрываются: номер появится после подтверждения брони." : "Отправлено." });
+      // Подтверждение «Отправлено» не шлём — только если не ушло или контакты скрыты
+      if (typeof r === "string") await send(ctx, uid, { text: "Не получилось отправить." });
+      else if (r.masked) await send(ctx, uid, { text: "Отправлено. Контакты в сообщениях скрываются: номер появится после подтверждения брони." });
       return;
     }
     if (text && !text.startsWith("/")) {
@@ -1631,6 +1621,7 @@ export async function processUpdate(ctx: Ctx, update: any) {
 
 export async function sweep(ctx: Ctx) {
   const t = now(ctx);
+  await wakeUnread(ctx, t);
   const tomorrow = addDays(todaySamara(t), 1);
   for (const b of await ctx.store.listBookings({ status: HOLDING })) {
     try {
@@ -1662,6 +1653,41 @@ export async function sweep(ctx: Ctx) {
       }
     } catch (e) {
       ctx.log(`sweep ${b.id}: ${(e as Error).message}`);
+    }
+  }
+}
+
+/** Через сколько непрочитанное сообщение превращается в напоминание в личку MAX */
+export const CHAT_WAKE_MS = 30 * 60_000;
+
+/**
+ * Таймер раз в 5 минут: кто не прочитал сообщения в приложении за 30 минут, получает одно напоминание
+ * в личку MAX с последним сообщением (на него можно ответить прямо там)
+ */
+export async function wakeUnread(ctx: Ctx, t: number) {
+  for (const [key, w] of await ctx.store.kvList<{ at: number }>("chatwake:")) {
+    try {
+      if (t - w.at < CHAT_WAKE_MS) continue;
+      await ctx.store.kvSet(key, undefined);
+      const [, thId, side] = key.split(":");
+      const th = await ctx.store.getThread(thId);
+      if (!th) continue;
+      const toOwner = side === "owner";
+      const unread = toOwner ? th.unreadOwner : th.unreadGuest;
+      if (!unread) continue;
+      const l = await ctx.store.getListing(th.listingId);
+      if (!l) continue;
+      const from = toOwner ? "guest" : "owner";
+      const last = (await ctx.store.listChatMessages(th.id, 30)).filter((m) => m.from === from && !m.deletedAt).at(-1);
+      if (!last) continue;
+      const guest = toOwner ? await ctx.store.getUser(th.guestId) : undefined;
+      const mid = await send(ctx, toOwner ? th.ownerId : th.guestId, chatNotify(l, from, last.text, guest?.name ?? null, appButton(ctx, "Открыть переписку", `chat_${th.id}`), unread));
+      if (!mid) continue;
+      // Автор удалит сообщение — поправим и напоминание; «Ответить» на него уйдёт в эту же переписку
+      await ctx.store.kvSet(`cmid:${last.id}`, mid);
+      await ctx.store.setReplyTarget(mid, { threadId: th.id, as: toOwner ? "owner" : "guest" });
+    } catch (e) {
+      ctx.log(`напоминание ${key}: ${(e as Error).message}`);
     }
   }
 }

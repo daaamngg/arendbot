@@ -143,7 +143,7 @@ export default function App() {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
   } else if (tab === "admin" && me.admin) {
     // Админка — только у команды: вкладка появляется после кода, у обычного человека её нет вовсе
-    content = <AdminScreen owner={me.owner} />;
+    content = <AdminScreen owner={me.owner} onOpen={openListing} />;
   } else {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   }

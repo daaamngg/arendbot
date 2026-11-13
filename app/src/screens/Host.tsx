@@ -48,13 +48,17 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
   };
 
   const decide = async (b: BookingView, accept: boolean) => {
+    // На экране — сразу: запрос уходит из списка (принятый — в «Ближайшие заезды»), сервер догоняет
+    setBookings((x) => x.map((y) => (y.id === b.id ? { ...y, status: accept ? "confirmed" : "declined" } : y)));
+    setNote(accept ? "Принимаем…" : "Отклоняем…");
+    haptic("success");
     try {
       const r = await api.decide(b.id, accept);
-      haptic("success");
       setNote(r.message);
       load();
     } catch (e) {
       setNote(errorText(e));
+      load();
     }
   };
   const today = todaySamara();

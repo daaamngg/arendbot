@@ -41,12 +41,12 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
     );
   }, [props.id, props.listingId]);
 
-  // Новые сообщения подтягиваем раз в 4 секунды, пока экран открыт, и сразу при возврате в приложение
+  // Новые сообщения (и удаления) подтягиваем раз в 2,5 секунды, пока экран открыт, и сразу при возврате в приложение
   useLive(
     () => {
       if (thread) return api.chatThread(thread.id).then((r) => setMessages(r.messages));
     },
-    4000,
+    2500,
     [thread?.id],
   );
 
@@ -75,10 +75,12 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
   };
   const removeMsg = async (m: ChatMsg) => {
     if (!(await ask("Удалить сообщение?", { text: "Оно пропадёт и у собеседника.", ok: "Удалить", danger: true }))) return;
+    const before = messages;
+    setMessages((list) => list.map((x) => (x.id === m.id ? { ...x, deleted: true, text: "" } : x)));
     try {
       await api.chatDelete(thread.id, m.id);
-      setMessages((list) => list.map((x) => (x.id === m.id ? { ...x, deleted: true, text: "" } : x)));
     } catch (e) {
+      setMessages(before);
       tell("Не получилось удалить", errorText(e));
     }
   };
@@ -144,7 +146,7 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
                   >
                     <span className="whitespace-pre-wrap break-words">{r.deleted ? "Сообщение удалено" : r.text}</span>
                     {/* Время и галочка — в углу, как в Telegram: «невидимый» хвост в тексте оставляет им место */}
-                    <span className="invisible ml-2 inline-block w-[52px]" aria-hidden />
+                    <span className={`invisible ml-1.5 inline-block ${r.own && !r.deleted ? "w-[46px]" : "w-[30px]"}`} aria-hidden />
                     <span className={`absolute right-2 bottom-1 flex items-center gap-0.5 text-[11px] ${r.own ? "text-accent/70" : "text-dim"}`}>
                       {timeOnly(r.at)}
                       {r.own && !r.deleted && (r.state === "sending" ? <Clock3 size={12} /> : r.state === "failed" ? <AlertCircle size={12} className="text-bad" /> : <Check size={13} />)}
