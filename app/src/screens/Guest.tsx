@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, Share2, SlidersHorizontal, Star, Users } from "lucide-react";
+import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, Share, SlidersHorizontal, Star, Users } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { CANCEL_OPTIONS, COMPLAINT_REASONS, type ListingCard, type PublicListing } from "../../../shared/types.ts";
@@ -7,7 +7,7 @@ import { api, errorText, type BookingView, type Me, type SearchQuery } from "../
 import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
 import { haptic } from "../lib/max.ts";
-import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
+import { Badge, CityPicker, Cover, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
 
 // --- Поиск --------------------------------------------------------------------------
 
@@ -167,9 +167,9 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
         {cards?.map((c) => (
           <li key={c.id}>
             <button className="block w-full text-left" onClick={() => props.onOpen(c.id)}>
-              <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-surface-2">
+              <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-surface-2">
                 {c.photo ? (
-                  <img src={c.photo} alt="" className="size-full object-cover" loading="lazy" />
+                  <Cover src={c.photo} className="size-full" lazy />
                 ) : (
                   <div className="grid size-full place-items-center text-dim">
                     <Home size={28} />
@@ -324,7 +324,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           onScroll={(e) => setSlide(Math.round(e.currentTarget.scrollLeft / Math.max(1, e.currentTarget.clientWidth)))}
         >
           {l.photos.length ? (
-            l.photos.map((p, i) => <img key={p.url} src={p.url} alt={i === 0 ? l.title : ""} className="aspect-[4/3] w-full shrink-0 snap-center object-cover" loading={i > 1 ? "lazy" : undefined} />)
+            l.photos.map((p, i) => <Cover key={p.url} src={p.url} alt={i === 0 ? l.title : ""} className="aspect-[4/3] w-full shrink-0 snap-center" lazy={i > 1} />)
           ) : (
             <div className="grid aspect-[16/10] w-full place-items-center bg-surface-2 text-dim">
               <Home size={32} />
@@ -341,7 +341,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
       <div className="flex items-start gap-3">
         <h1 className="flex-1 text-[22px] leading-tight font-bold text-ink">{l.title}</h1>
         <button className="grid size-11 shrink-0 place-items-center rounded-full border border-line bg-surface text-dim" aria-label="Поделиться" onClick={() => shareListing(props.me.bot, l.id, l.title, rub(Math.min(l.priceWeekday, l.priceWeekend)), l.locality)}>
-          <Share2 size={19} />
+          <Share size={20} />
         </button>
         {!data.own && (
           <button
@@ -395,6 +395,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
               <Phone size={18} /> Позвонить
             </a>
           )}
+          {l.hostPhone && <p className="col-span-2 text-center text-[12px] text-dim">Бронируйте только здесь. Предоплату по телефону и по ссылкам не переводите.</p>}
         </div>
       )}
 
@@ -785,7 +786,7 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
           <div className="grid grid-cols-2 gap-3">
             {favs.map((c) => (
               <button key={c.id} className="text-left" onClick={() => props.onOpen(c.id)}>
-                <div className="aspect-[4/3] overflow-hidden rounded-xl bg-surface-2">{c.photo && <img src={c.photo} alt="" className="size-full object-cover" loading="lazy" />}</div>
+                <div className="aspect-[4/3] overflow-hidden rounded-xl bg-surface-2">{c.photo && <Cover src={c.photo} className="size-full" lazy />}</div>
                 <div className="mt-1.5 truncate text-[14px] font-semibold text-ink">{c.title}</div>
                 <div className="truncate text-[13px] text-dim">
                   {c.locality} · от {rub(c.priceFrom)}

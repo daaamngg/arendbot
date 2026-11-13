@@ -127,7 +127,8 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
       {rows.length === 0 && <p className="mb-3 text-[15px] text-dim">Пока нет объявлений. Добавьте первое, это займёт минут десять.</p>}
       <ul className="space-y-3">
         {rows.map((r) => (
-          <li key={r.id} className="card flex gap-3 p-3">
+          <li key={r.id} className="card p-3">
+            <div className="flex gap-3">
             <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-surface-2">{r.photo ? <img src={r.photo} alt="" className="size-full object-cover" /> : <Home className="m-auto mt-5 text-dim" />}</div>
             <div className="min-w-0 flex-1">
               <div className="truncate font-semibold text-ink">{r.title}</div>
@@ -136,17 +137,6 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
                 {r.requests > 0 && <span className="text-[13px] font-semibold text-accent">запросов: {r.requests}</span>}
               </div>
               {r.moderatorNote && r.status === "rejected" && <p className="mt-1 text-[13px] text-bad">{r.moderatorNote}</p>}
-              {/* Просмотры (один человек — один раз в сутки) и сколько людей сохранили в избранное */}
-              {r.status === "active" && (
-                <div className="mt-1.5 flex items-center gap-2 text-[13px] text-dim tabular-nums">
-                  <span className="flex min-w-[3.5rem] items-center gap-1" title="Просмотры">
-                    <Eye size={14} aria-hidden /> {r.views} <span className="sr-only">просмотров</span>
-                  </span>
-                  <span className="flex items-center gap-1" title="В избранном">
-                    <Heart size={14} aria-hidden /> {r.favs} <span className="sr-only">в избранном</span>
-                  </span>
-                </div>
-              )}
               <div className="mt-2 flex gap-4 text-[14px] font-semibold text-accent">
                 <button onClick={() => props.onEdit(r.id)}>Изменить</button>
                 <button onClick={() => props.onCalendar(r.id)}>Календарь</button>
@@ -170,6 +160,20 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
               >
                 <Trash2 size={18} />
               </button>
+            )}
+            </div>
+            {/* Просмотры (один человек — один раз в сутки) и сколько людей сохранили в избранное */}
+            {r.status === "active" && (
+              <div className="mt-3 grid grid-cols-2 border-t border-line pt-2.5 text-[13px] tabular-nums">
+                <span className="flex items-center justify-center gap-1.5 text-dim">
+                  <Eye size={15} aria-hidden />
+                  <b className="font-semibold text-ink">{r.views}</b> {plural(r.views, "просмотр", "просмотра", "просмотров")}
+                </span>
+                <span className="flex items-center justify-center gap-1.5 border-l border-line text-dim">
+                  <Heart size={15} aria-hidden />
+                  <b className="font-semibold text-ink">{r.favs}</b> в избранном
+                </span>
+              </div>
             )}
           </li>
         ))}
@@ -426,7 +430,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
 
       <div className="space-y-5">
         {/* Фото — первыми: это главное, что видит гость. Плитка «+» в конце сетки */}
-        <Group title="Фото" hint={`${photos.length} из ${MAX_PHOTOS}, минимум 2. Первое станет обложкой`}>
+        <Group title="Фото" hint={`${photos.length} из ${MAX_PHOTOS}, минимум 2. Первое станет обложкой. Лучше снимать горизонтально, так в поиске видно всю комнату`}>
           <ul className="grid grid-cols-3 gap-2 p-3">
             {photos.map((p, i) => (
               <li key={p.url} className="relative overflow-hidden rounded-lg">
@@ -713,7 +717,47 @@ export function HostCalendar(props: { id: string }) {
   const [booked, setBooked] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   const [month, setMonth] = useState(todaySamara().slice(0, 7));
+  const [saving, setSaving] = useState<"idle" | "saving" | "error">("idle");
   const today = todaySamara();
+  /** Нажатия, ещё не отправленные на сервер: день → закрыт ли */
+  const pending = useRef(new Map<string, boolean>());
+  const inFlight = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const flush = async () => {
+    if (inFlight.current || pending.current.size === 0) return;
+    inFlight.current = true;
+    let failed = false;
+    const batch = new Map(pending.current);
+    pending.current.clear();
+    try {
+      const r = await api.calendar(
+        props.id,
+        [...batch].filter(([, c]) => c).map(([d]) => d),
+        [...batch].filter(([, c]) => !c).map(([d]) => d),
+      );
+      // Ответ сервера + то, что нажали, пока запрос шёл
+      const next = new Set(r.closed);
+      for (const [d, c] of pending.current) {
+        if (c) next.add(d);
+        else next.delete(d);
+      }
+      setClosed(next);
+      setBooked(new Set(r.booked));
+      setSaving(pending.current.size ? "saving" : "idle");
+    } catch {
+      // Не сохранилось — вернём в очередь (новые нажатия по тем же дням важнее) и повторим
+      for (const [d, c] of batch) if (!pending.current.has(d)) pending.current.set(d, c);
+      setSaving("error");
+      failed = true;
+      timer.current = setTimeout(flush, 3000);
+    } finally {
+      inFlight.current = false;
+      if (!failed && pending.current.size) timer.current = setTimeout(flush, 300);
+    }
+  };
+  // Ушли с экрана, пока что-то не отправилось, — дошлём
+  useEffect(() => () => void flush(), []);
 
   useEffect(() => {
     api.hostListing(props.id).then((r) => setTitle(`${r.listing.locality}, ${r.listing.address}`));
@@ -732,12 +776,21 @@ export function HostCalendar(props: { id: string }) {
   }, [month]);
 
   if (!closed) return <Spinner />;
-  const toggle = async (d: string) => {
+  // День закрывается/открывается на экране сразу. На сервер изменения уходят пачкой через 0,3 с
+  // и строго по одному запросу: быстрые нажатия подряд не перезатирают друг друга
+  const toggle = (d: string) => {
     if (d < today || booked.has(d)) return;
-    const isClosed = closed.has(d);
-    const r = await api.calendar(props.id, isClosed ? [] : [d], isClosed ? [d] : []);
-    setClosed(new Set(r.closed));
-    setBooked(new Set(r.booked));
+    const willClose = !closed.has(d);
+    setClosed((prev) => {
+      const n = new Set(prev);
+      if (willClose) n.add(d);
+      else n.delete(d);
+      return n;
+    });
+    pending.current.set(d, willClose);
+    setSaving("saving");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 300);
   };
   const [y, m] = month.split("-").map(Number);
   const shiftMonth = (n: number) => setMonth(new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7));
@@ -756,6 +809,9 @@ export function HostCalendar(props: { id: string }) {
           <ArrowRight size={18} />
         </button>
       </div>
+      <p className={`mb-2 h-5 text-[13px] ${saving === "error" ? "text-bad" : "text-dim"}`} aria-live="polite">
+        {saving === "saving" ? "Сохраняем…" : saving === "error" ? "Нет связи, повторим сами" : ""}
+      </p>
       <div className="grid grid-cols-7 gap-1 text-center text-[13px]">
         {WEEK.map((w) => (
           <div key={w} className="py-1 text-dim">
@@ -769,7 +825,7 @@ export function HostCalendar(props: { id: string }) {
               onClick={() => toggle(d)}
               disabled={d < today}
               className={`aspect-square rounded-lg text-[15px] tabular-nums ${
-                booked.has(d) ? "bg-accent font-semibold text-white" : closed.has(d) ? "bg-surface-2 text-dim line-through" : d < today ? "text-line" : "bg-surface text-ink"
+                booked.has(d) ? "bg-accent font-semibold text-white" : closed.has(d) ? "day-off text-dim" : d < today ? "text-line" : "bg-surface text-ink active:bg-surface-2"
               }`}
               aria-label={`${Number(d.slice(8))}: ${booked.has(d) ? "забронировано" : closed.has(d) ? "закрыто" : "свободно"}`}
             >
@@ -785,7 +841,7 @@ export function HostCalendar(props: { id: string }) {
           <span className="size-4 rounded bg-accent" /> забронировано
         </li>
         <li className="flex items-center gap-2">
-          <span className="size-4 rounded bg-surface-2" /> закрыто вами, гости не смогут выбрать
+          <span className="day-off size-4 rounded" /> закрыто вами, гости не смогут выбрать
         </li>
         <li className="flex items-center gap-2">
           <CalendarDays size={16} /> нажмите на день, чтобы закрыть или открыть
@@ -802,4 +858,11 @@ function Toggle(props: { on: boolean; onChange: (v: boolean) => void; label: str
       <span className={`absolute top-0.5 left-0 size-6 rounded-full bg-white shadow transition-transform ${props.on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
     </button>
   );
+}
+
+/** 1 просмотр, 2 просмотра, 5 просмотров */
+function plural(n: number, one: string, few: string, many: string) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
 }

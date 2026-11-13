@@ -1,3 +1,4 @@
+import { isRisky } from "../shared/trust.ts";
 import { fullAddress, listingTitle } from "../shared/catalog.ts";
 import { guestsText, nightsFrom, nightsText, rangeText, rub } from "../shared/dates.ts";
 import { PLACE_TYPES, type Booking, type Complaint, type Listing, type User } from "../shared/types.ts";
@@ -162,7 +163,14 @@ export function complaintToAdmins(c: Complaint, l: Listing, reasonTitle: string,
 export function chatNotify(l: Listing, from: "guest" | "owner", text: string, guestName: string | null, open?: Button[][]): OutMessage {
   const who = from === "guest" ? `Вопрос от гостя${guestName ? ` ${guestName}` : ""}` : "Ответ хозяина";
   return {
-    text: [`${who} по «${listingTitle(l)}», ${l.locality}`, "", text, "", `Чтобы ответить, нажмите «Ответить» на этом сообщении.`].join("\n"),
+    text: [
+      ...(isRisky(text) ? ["ОСТОРОЖНО, похоже на обман. Не переходите по ссылкам, не называйте коды из СМС и не переводите деньги до подтверждения брони в боте.", ""] : []),
+      `${who} по «${listingTitle(l)}», ${l.locality}`,
+      "",
+      text,
+      "",
+      `Чтобы ответить, нажмите «Ответить» на этом сообщении.`,
+    ].join("\n"),
     buttons: open,
   };
 }

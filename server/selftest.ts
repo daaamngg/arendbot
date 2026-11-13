@@ -827,10 +827,54 @@ await approveHost(HOST6);
 // --- 13.11: защита денег — номер карты и просьбы о переводе в переписке скрываются ----------------
 {
   const { maskContacts: mc } = await import("../shared/trust.ts");
-  check("номер карты группами скрыт", mc("карта 2202 2063 1234 5678").text === "карта [скрыто]");
-  check("номер карты слитно скрыт", mc("2202206312345678").masked);
+  check("номер карты группами скрыт", mc("карта 4276 3801 2345 6787").text === "карта [скрыто]");
+  check("номер карты слитно скрыт", mc("2202206312345676").masked);
   check("«скиньте на карту» и СБП скрыты", mc("скиньте на карту").text === "[скрыто]" && mc("по СБП 500").masked);
   check("обычное сообщение с цифрами не трогаем", !mc("заезд 12.12, нас 2, цена 3500, 3 ночи").masked);
+}
+
+// --- 14.11: защита от схем с Авито и посуточных сайтов; история; календарь пачкой --------------
+{
+  const H10 = 192;
+  const G11 = 193;
+  await call("/phone", H10, { phone: "+79270000192", consent: true });
+  await approveHost(H10);
+  const id = (await call("/host/save", H10, { form: { ...form, address: "ул. Осторожная, 3", description: "Тёплая квартира у набережной, свежий ремонт" } })).json.listing.id as string;
+  await call("/host/photos-request", H10, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: H10 }, body: { text: "", attachments: [img(961), img(962)] } } });
+  await call("/host/submit", H10, { id });
+
+  // «Назовите код из СМС» и «оплата по ссылке» — у получателя предупреждение и в приложении, и в уведомлении MAX
+  const th = (await call("/chat/open", G11, { listingId: id })).json.thread.id as string;
+  await call("/chat/send", G11, { id: th, text: "Чтобы подтвердить бронь, назовите код из СМС" });
+  const msgs = (await call("/chat/thread", H10, { id: th })).json.messages;
+  check("тревожное сообщение помечено для хозяина", msgs.some((m: any) => m.risky === true));
+  check("в уведомлении MAX — «ОСТОРОЖНО»", (lastTo(H10)?.text ?? "").includes("ОСТОРОЖНО"));
+  await call("/chat/send", G11, { id: th, text: "Свободно на выходные? Нас двое" });
+  check("обычный вопрос без предупреждения", !(await call("/chat/thread", H10, { id: th })).json.messages.find((m: any) => m.text.startsWith("Свободно")).risky);
+  await call("/chat/send", H10, { id: th, text: "Оплата тут: avito-oplata точка ru, или 8 9 2 7 1 2 3 4 5 6 7" });
+  const last = (await call("/chat/thread", G11, { id: th })).json.messages.at(-1);
+  check("сайт «точка ru» и номер вразбивку скрыты", !last.text.includes("avito") && !last.text.includes("8 9 2 7"));
+
+  // Имя «Служба безопасности» — не показываем
+  await handleApi(ctx, "/me", { initData: signedInit(token, 194, "Служба безопасности") });
+  check("имя «Служба безопасности» скрыто", (await ctx.store.getUser(194))?.name === null);
+
+  // Календарь: несколько дней одним запросом, открыть и закрыть сразу
+  const d1 = addDays(todaySamara(clock), 40);
+  const d2 = addDays(d1, 1);
+  const c1 = (await call("/host/calendar", H10, { id, close: [d1, d2], open: [] })).json;
+  check("календарь: два дня закрыты одним запросом", c1.closed.includes(d1) && c1.closed.includes(d2));
+  const c2 = (await call("/host/calendar", H10, { id, close: [], open: [d1] })).json;
+  check("календарь: день снова открыт, второй остался закрыт", !c2.closed.includes(d1) && c2.closed.includes(d2));
+
+  // История: удалить одну запись может только главный
+  const entries = (await call("/admin/audit", ADMIN)).json.entries;
+  const victim = entries[0];
+  check("у записей истории есть id", typeof victim?.id === "string");
+  check("модератор запись не удалит", (await call("/admin/audit/delete", 150, { id: victim.id })).status === 403);
+  check("главный удалил одну запись", (await call("/admin/audit/delete", ADMIN, { id: victim.id })).status === 200 && !(await call("/admin/audit", ADMIN)).json.entries.some((e: any) => e.id === victim.id));
+  check("остальные записи на месте", (await call("/admin/audit", ADMIN)).json.entries.length >= Math.min(entries.length - 1, 99));
 }
 
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");

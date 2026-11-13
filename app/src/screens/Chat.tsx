@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Clock3, Home, MessageCircle, RotateCw, SendHorizontal, Trash2 } from "lucide-react";
+import { AlertCircle, Check, Clock3, Home, MessageCircle, RotateCw, SendHorizontal, ShieldAlert, Trash2 } from "lucide-react";
 import { api, errorText, type ChatMsg, type ThreadView } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
 import { ask, tell } from "../ui/dialog.tsx";
@@ -151,6 +151,13 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
                     </span>
                   </div>
                 </div>
+                {/* Собеседник просит код, предоплату или оплату «по ссылке» — предупреждаем */}
+                {!r.own && r.msg?.risky && (
+                  <div className="-mt-1 mb-2 flex max-w-[85%] items-start gap-1.5 rounded-xl bg-[#f5e1dd] px-2.5 py-1.5 text-[12px] leading-snug text-bad">
+                    <ShieldAlert size={14} className="mt-px shrink-0" aria-hidden />
+                    Похоже на обман. Не переходите по ссылкам, не называйте коды из СМС и не переводите деньги до подтверждения брони.
+                  </div>
+                )}
                 {r.state === "failed" && r.out && (
                   <div className="-mt-1 mb-2 flex justify-end">
                     <button className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-[12px] font-semibold text-bad shadow-sm" onClick={() => deliver(r.out!)}>

@@ -15,6 +15,15 @@ for (const file of walk(root)) {
   const ext = key.slice(key.lastIndexOf("."));
   // index.html — всегда свежий; файлы со «отпечатком» в имени (assets/…-abc123.js) кэшируются надолго
   const cache = key.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache";
-  execFileSync(yc, ["--profile", profile, "storage", "s3api", "put-object", "--bucket", bucket, "--key", key, "--body", file, "--content-type", types[ext] ?? "application/octet-stream", "--cache-control", cache], { stdio: "ignore" });
+  // Облако иногда отвечает ошибкой на один файл из многих — повторяем до 4 раз с паузой
+  for (let i = 1; ; i++) {
+    try {
+      execFileSync(yc, ["--profile", profile, "storage", "s3api", "put-object", "--bucket", bucket, "--key", key, "--body", file, "--content-type", types[ext] ?? "application/octet-stream", "--cache-control", cache], { stdio: "ignore" });
+      break;
+    } catch (e) {
+      if (i >= 4) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500 * i);
+    }
+  }
   console.log("загружен", key);
 }

@@ -188,6 +188,8 @@ export interface ChatMsg {
   createdAt: number;
   /** автор удалил: текста нет, показываем «Сообщение удалено» */
   deleted: boolean;
+  /** похоже на обман (ссылка на оплату, код из СМС, предоплата) — показываем предупреждение */
+  risky?: boolean;
 }
 
 export interface AdminListing {
@@ -233,6 +235,7 @@ export interface AdminStats {
 }
 
 export interface AuditRow {
+  id: string;
   at: number;
   by: number;
   byName?: string;
@@ -310,6 +313,7 @@ export const api = {
   adminBookings: () => post<{ bookings: AdminBookingRow[] }>("/admin/bookings"),
   decideApplication: (id: number, ok: boolean, note?: string) => post<{ ok: true }>("/admin/application", { id, ok, note }),
   auditLog: () => post<{ entries: AuditRow[] }>("/admin/audit"),
+  auditDelete: (id: string) => post<{ ok: true }>("/admin/audit/delete", { id }),
 };
 
 /** Текст ошибки сервера для человека */

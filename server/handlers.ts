@@ -3,7 +3,7 @@ import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle
 import { addDays, busyNights, checkRange, isDate, price, todaySamara } from "../shared/dates.ts";
 import { autoCheck, hostHints } from "../shared/auto-check.ts";
 import { checkContact } from "./contact-check.ts";
-import { hasContacts, maskContacts, suspicion } from "../shared/trust.ts";
+import { hasContacts, maskContacts, suspicion, isRisky, safeName } from "../shared/trust.ts";
 import {
   CANCEL_OPTIONS,
   COMPLAINT_REASONS,
@@ -142,13 +142,13 @@ async function userOf(ctx: Ctx, uid: number, init?: VerifiedInit): Promise<User>
   const u = await ctx.store.getUser(uid);
   if (u) {
     // Имя в MAX могло поменяться — держим свежее
-    if (init?.user?.first_name && u.name !== init.user.first_name) {
-      u.name = init.user.first_name;
+    if (init?.user?.first_name && u.name !== safeName(init.user.first_name)) {
+      u.name = safeName(init.user.first_name);
       await ctx.store.saveUser(u);
     }
     return u;
   }
-  const fresh: User = { id: uid, name: init?.user?.first_name ?? null, phone: null, consentAt: null, createdAt: now(ctx) };
+  const fresh: User = { id: uid, name: safeName(init?.user?.first_name ?? null), phone: null, consentAt: null, createdAt: now(ctx) };
   await ctx.store.saveUser(fresh);
   return fresh;
 }
@@ -167,6 +167,9 @@ async function tryCode(ctx: Ctx, uid: number, name: string | null, code: string)
   const staff = await ctx.store.getStaff();
   const t = now(ctx);
   if (ownerCode && safeEq(code, ownerCode)) {
+    // Код главного мог утечь: остальным главным — сразу сообщение, чтобы заметили чужого
+    if (!staff.some((x) => x.id === uid && x.role === "owner"))
+      for (const o of staff.filter((x) => x.role === "owner")) await send(ctx, o.id, { text: `Новый ГЛАВНЫЙ по коду: ${name ?? "без имени"} (MAX ${uid}). Если это не вы и не ваш человек — срочно напишите разработчику: код главного нужно сменить.` });
     await ctx.store.saveStaff([...staff.filter((x) => x.id !== uid), { id: uid, role: "owner", addedBy: null, addedAt: t }]);
     await audit(ctx, uid, "вошёл как главный по коду", `${name ?? "без имени"} (${uid})`);
     return { role: "owner" };
@@ -395,7 +398,7 @@ async function messagesFor(ctx: Ctx, th: ChatThread, uid: number) {
   const cleared = (th.ownerId === uid ? th.clearedOwnerAt : th.clearedGuestAt) ?? 0;
   return (await ctx.store.listChatMessages(th.id))
     .filter((m) => m.createdAt > cleared)
-    .map((m) => ({ id: m.id, from: m.from, createdAt: m.createdAt, text: m.deletedAt ? "" : m.text, deleted: !!m.deletedAt }));
+    .map((m) => ({ id: m.id, from: m.from, createdAt: m.createdAt, text: m.deletedAt ? "" : m.text, deleted: !!m.deletedAt, risky: !m.deletedAt && isRisky(m.text) }));
 }
 
 async function threadView(ctx: Ctx, th: ChatThread, uid: number) {
@@ -1343,6 +1346,12 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         openComplaints: complaints.length,
         pendingHosts: (await ctx.store.listHostApplicants("pending")).length,
       });
+    }
+
+    case "/admin/audit/delete": {
+      // Удалить одну запись истории — только главный
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      return (await ctx.store.deleteAudit(str(body?.id, 64))) ? ok({ ok: true }) : fail(404, "not found");
     }
 
     case "/admin/audit": {

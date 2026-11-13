@@ -328,3 +328,24 @@ export function CityPicker(props: { value: string; onChange: (v: string) => void
     </>
   );
 }
+
+/**
+ * Обложка фото. Горизонтальное фото заполняет рамку как обычно. Вертикальное или квадратное
+ * (снято телефоном «стоя») не обрезаем — показываем целиком, а пустые края закрываем размытой копией.
+ * Так в поиске видно всю квартиру, а не кусок стены крупным планом
+ */
+export function Cover(props: { src: string; alt?: string; className?: string; lazy?: boolean }) {
+  const [tall, setTall] = useState(false);
+  return (
+    <div className={`relative overflow-hidden bg-surface-2 ${props.className ?? ""}`}>
+      {tall && <img src={props.src} alt="" aria-hidden className="absolute inset-0 size-full scale-110 object-cover opacity-70 blur-xl" />}
+      <img
+        src={props.src}
+        alt={props.alt ?? ""}
+        loading={props.lazy ? "lazy" : undefined}
+        onLoad={(e) => setTall(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight) < 1.15)}
+        className={`relative size-full ${tall ? "object-contain" : "object-cover"}`}
+      />
+    </div>
+  );
+}

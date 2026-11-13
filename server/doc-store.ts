@@ -229,7 +229,12 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
       await db.put({ kind: "audit", id: `${String(e.at).padStart(15, "0")}:${String(seq).padStart(6, "0")}:${randomUUID().slice(0, 4)}`, data: e });
     },
     async listAudit(limit = 100) {
-      return (await db.prefix<AuditEntry>("audit", "")).map(([, e]) => e).slice(-limit).reverse();
+      return (await db.prefix<AuditEntry>("audit", "")).map(([id, e]) => ({ ...e, id })).slice(-limit).reverse();
+    },
+    async deleteAudit(id) {
+      if (!(await db.get("audit", id))) return false;
+      await db.del("audit", id);
+      return true;
     },
     async getMessageIds(key) {
       return (await db.get<string[]>("msgs", key)) ?? [];

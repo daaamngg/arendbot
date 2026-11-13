@@ -140,6 +140,8 @@ export interface AdminSession {
 
 /** Запись журнала: кто из команды что сделал — чтобы при нескольких модераторах было видно, чьё решение */
 export interface AuditEntry {
+  /** ключ записи в базе — чтобы главный мог удалить одну запись */
+  id?: string;
   at: number;
   by: number;
   action: string;

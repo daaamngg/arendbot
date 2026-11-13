@@ -76,6 +76,7 @@ export interface Store {
   /** журнал действий команды: кто, что и с чем сделал */
   addAudit(e: AuditEntry): Promise<void>;
   listAudit(limit?: number): Promise<AuditEntry[]>;
+  deleteAudit(id: string): Promise<boolean>;
 
   /** сообщения бота по объекту (брони или объявлению) — чтобы потом поправить кнопки */
   getMessageIds(key: string): Promise<string[]>;
@@ -297,13 +298,19 @@ export function fileStore(path: string): Store {
       return Object.keys(db.users).length;
     },
     async addAudit(e) {
-      db.audit.push(e);
+      db.audit.push({ ...e, id: e.id ?? `${e.at}:${Math.random().toString(36).slice(2, 8)}` });
       // Журнал не разрастается бесконечно: последние 2000 действий
       if (db.audit.length > 2000) db.audit = db.audit.slice(-2000);
       flush();
     },
     async listAudit(limit = 100) {
-      return db.audit.slice(-limit).reverse();
+      return db.audit.slice(-limit).reverse().map((e, i) => ({ ...e, id: e.id ?? `old:${e.at}:${i}` }));
+    },
+    async deleteAudit(id) {
+      const n = db.audit.length;
+      db.audit = db.audit.filter((e) => e.id !== id);
+      flush();
+      return db.audit.length < n;
     },
     async getMessageIds(key) {
       return db.messages[key] ?? [];

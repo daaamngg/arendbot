@@ -145,3 +145,12 @@
     font-weight: 600;
   }
 }
+
+/* Закрытый хозяином день: серый фон и косая черта через всю клетку — видно сразу */
+@layer components {
+  .day-off {
+    background:
+      linear-gradient(to top right, transparent calc(50% - 1px), var(--color-dim) calc(50% - 0.5px), var(--color-dim) calc(50% + 0.5px), transparent calc(50% + 1px)),
+      var(--color-surface-2);
+  }
+}

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Flag, Search, UserMinus, UserPlus } from "lucide-react";
+import { Flag, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
 import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
-import { ask, askText } from "../ui/dialog.tsx";
+import { ask, askText, tell } from "../ui/dialog.tsx";
 import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
 
 // Админка площадки. Модераторы проверяют объявления и жалобы, смотрят людей и журнал.
@@ -353,26 +353,27 @@ function People(props: { act: Act }) {
       ) : (
         <ul className="mt-3 card divide-y divide-line">
           {list.map((u) => (
-            <li key={u.id} className="p-3 text-[14px]">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-semibold text-ink">
+            <li key={u.id} className="px-4 py-3.5 text-[14px]">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <div className="font-semibold leading-snug text-ink">
                     {u.name ?? "Без имени"}
                     {u.role && <span className="ml-2 rounded bg-accent-soft px-1.5 text-[12px] font-semibold text-accent">{u.role === "owner" ? "главный" : "модератор"}</span>}
                     {u.blocked && <span className="ml-2 rounded bg-[#f5e1dd] px-1.5 text-[12px] font-semibold text-bad">заблокирован</span>}
                   </div>
-                  <div className="text-dim">
-                    {u.phone ? phoneText(u.phone) : "номер не оставлял"} · объявлений {u.listings} · броней {u.bookings}
+                  <div className="text-dim">{u.phone ? phoneText(u.phone) : "номер не оставлял"}</div>
+                  <div className="text-[13px] text-dim">
+                    объявлений {u.listings} · броней {u.bookings}
                   </div>
                 </div>
                 {u.role !== "owner" &&
                   (u.blocked ? (
-                    <button className="shrink-0 font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
+                    <button className="shrink-0 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
                       Разблокировать
                     </button>
                   ) : (
                     <button
-                      className="shrink-0 font-semibold text-bad"
+                      className="shrink-0 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => {
                         const note = await askText("За что блокируете?", "Обман", { text: "Объявления человека снимутся, его брони отменятся.", ok: "Заблокировать", danger: true });
                         if (note !== null) props.act(() => api.adminBlockUser(u.id, true, note), "Заблокирован.", load);
@@ -532,6 +533,15 @@ function Bookings(props: { act: Act }) {
 
 function Log() {
   const [entries, setEntries] = useState<AuditRow[] | null>(null);
+  const remove = async (e: AuditRow) => {
+    if (!(await ask("Удалить запись?", { text: "Она пропадёт из истории насовсем.", ok: "Удалить", danger: true }))) return;
+    try {
+      await api.auditDelete(e.id);
+      setEntries((x) => x?.filter((y) => y.id !== e.id) ?? x);
+    } catch (err) {
+      tell("Не получилось удалить", errorText(err));
+    }
+  };
   useEffect(() => {
     api.auditLog().then((r) => setEntries(r.entries), () => setEntries([]));
   }, []);
@@ -539,14 +549,19 @@ function Log() {
   if (!entries.length) return <p className="text-dim">Пока пусто.</p>;
   return (
     <ul className="card divide-y divide-line">
-      {entries.map((e, i) => (
-        <li key={i} className="p-3 text-[14px]">
-          <div className="text-ink">
-            <b>{e.byName ?? e.by}</b> {e.action}
+      {entries.map((e) => (
+        <li key={e.id} className="flex items-start gap-3 px-4 py-3 text-[14px]">
+          <div className="min-w-0 flex-1">
+            <div className="text-ink">
+              <b>{e.byName ?? e.by}</b> {e.action}
+            </div>
+            <div className="text-dim">{e.target}</div>
+            {e.note && <div className="text-dim">«{e.note}»</div>}
+            <div className="mt-0.5 text-[12px] text-dim">{when(e.at)}</div>
           </div>
-          <div className="text-dim">{e.target}</div>
-          {e.note && <div className="text-dim">«{e.note}»</div>}
-          <div className="mt-0.5 text-[12px] text-dim">{when(e.at)}</div>
+          <button className="grid size-9 shrink-0 place-items-center rounded-full text-dim active:bg-surface-2" aria-label="Удалить запись" onClick={() => remove(e)}>
+            <Trash2 size={17} />
+          </button>
         </li>
       ))}
     </ul>
