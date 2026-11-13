@@ -19,6 +19,8 @@ export interface Store {
 
   getListing(id: string): Promise<Listing | undefined>;
   saveListing(l: Listing): Promise<void>;
+  /** стереть объявление из базы насовсем (брони и жалобы остаются для истории) */
+  purgeListing(id: string): Promise<void>;
   listListings(q?: { ownerId?: number; status?: ListingStatus[] }): Promise<Listing[]>;
 
   getBooking(id: string): Promise<Booking | undefined>;
@@ -145,6 +147,10 @@ export function fileStore(path: string): Store {
     },
     async saveListing(l) {
       db.listings[l.id] = l;
+      flush();
+    },
+    async purgeListing(id) {
+      delete db.listings[id];
       flush();
     },
     async listListings(q) {

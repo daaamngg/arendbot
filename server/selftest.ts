@@ -757,5 +757,33 @@ await approveHost(HOST6);
   check("кнопки модератора в боте он тоже нажать не может", (await ctx.store.getUser(HN + 1))?.hostStatus !== "approved");
 }
 
+// --- 13.11 вечер: стереть удалённое, подтверждение номера через MAX ----------------------------
+{
+  const { createHmac } = await import("node:crypto");
+  // Номер из окна MAX с подписью (схема как у данных запуска) — подтверждён; руками или с чужой подписью — нет
+  const PV = 187;
+  const authDate = Math.floor(Date.now() / 1000);
+  const phone = "+79270000187";
+  const secret = createHmac("sha256", "WebAppData").update(token).digest();
+  const hash = createHmac("sha256", secret).update(`auth_date=${authDate}\nphone=${phone}`).digest("hex");
+  const r1 = (await call("/phone", PV, { phone, consent: true, contact: { phone, authDate, hash } })).json;
+  check("номер из MAX с верной подписью — подтверждён", r1.verified === true && (await ctx.store.getUser(PV))?.phoneVerified === true);
+  const r2 = (await call("/phone", PV, { phone, consent: true, contact: { phone, authDate, hash: "00".repeat(32) } })).json;
+  check("подделанная подпись — не подтверждён", r2.verified === false && (await ctx.store.getUser(PV))?.phoneVerified === false);
+  const r3 = (await call("/phone", PV, { phone: "+79270000999", consent: true, contact: { phone, authDate, hash } })).json;
+  check("подпись от другого номера — не подтверждён", r3.verified === false);
+  check("введённый руками — не подтверждён", (await call("/phone", PV, { phone, consent: true })).json.verified === false);
+
+  // Стереть насовсем: только уже удалённое и только главный
+  const HP = 188;
+  await call("/phone", HP, { phone: "+79270000188", consent: true });
+  await approveHost(HP);
+  const id = (await call("/host/save", HP, { form: { ...form, address: "ул. Стираемая, 1" } })).json.listing.id as string;
+  check("неудалённое стереть нельзя", (await call("/admin/listing/purge", ADMIN, { id })).json.error === "bad status");
+  await call("/host/delete", HP, { id });
+  check("модератор стереть не может", (await call("/admin/listing/purge", 150, { id })).status === 403);
+  check("главный стёр удалённое насовсем", (await call("/admin/listing/purge", ADMIN, { id })).status === 200 && (await ctx.store.getListing(id)) === undefined);
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

@@ -7,7 +7,7 @@ import { api, errorText, type BookingView, type Me, type SearchQuery } from "../
 import { useLive } from "../lib/live.ts";
 import { ask, tell } from "../ui/dialog.tsx";
 import { haptic } from "../lib/max.ts";
-import { Badge, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
+import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
 
 // --- Поиск --------------------------------------------------------------------------
 
@@ -85,19 +85,11 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
           Фильтры — отдельной кнопкой рядом, раскрываются под карточкой */}
       <h1 className="mb-3 text-[22px] leading-tight font-bold tracking-[-0.01em] text-ink">Квартиры посуточно</h1>
       <section className="card divide-y divide-line">
-        <label className="flex items-center gap-3 px-4 py-2.5">
+        <div className="flex items-center gap-3 px-4 py-2.5">
           <MapPin size={18} className="shrink-0 text-dim" aria-hidden />
           <span className="w-16 shrink-0 text-[13px] text-dim">Где</span>
-          <span className="relative flex min-w-0 flex-1 items-center">
-            <select className="min-w-0 flex-1 appearance-none bg-transparent py-1 pr-6 text-[15px] font-semibold text-ink outline-none" value={q.locality ?? ""} onChange={(e) => set({ locality: e.target.value || undefined })} aria-label="Где">
-              <option value="">Самара и область</option>
-              {props.me.localities.map((l) => (
-                <option key={l}>{l}</option>
-              ))}
-            </select>
-            <ChevronDown size={16} className="pointer-events-none absolute right-0 text-dim" aria-hidden />
-          </span>
-        </label>
+          <CityPicker value={q.locality ?? ""} onChange={(v) => set({ locality: v || undefined })} options={props.me.localities} allLabel="Самара и область" />
+        </div>
         <div className="px-4 py-3">
           <DateRange
             checkIn={q.checkIn}
@@ -775,7 +767,9 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
 
       {tab === "favs" &&
         (favs.length === 0 ? (
-          <div className="card p-5 text-center text-[14px] text-dim">Нажмите на сердечко в объявлении, и оно появится здесь.</div>
+          <div className="card p-5 text-center text-[14px] text-dim">
+            Нажмите <Heart size={15} className="mx-0.5 inline -translate-y-px text-bad" aria-label="значок избранного" /> в объявлении, и оно появится здесь.
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {favs.map((c) => (

@@ -8,7 +8,7 @@ import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
 import { api, errorText, type BookingView, type HostListingRow, type Me } from "../lib/api.ts";
 import { haptic } from "../lib/max.ts";
-import { Badge, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
+import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
 
 // --- Главная хозяина: запросы на бронь сверху, ниже объявления ----------------------------
 
@@ -221,11 +221,9 @@ function HostApply(props: { me: Me }) {
           <label className="label" htmlFor="ha-city">
             Где жильё
           </label>
-          <select id="ha-city" className="field" value={city} onChange={(e) => setCity(e.target.value)}>
-            {props.me.localities.map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
+          <div className="field flex items-center">
+            <CityPicker value={city} onChange={setCity} options={props.me.localities} />
+          </div>
         </div>
         <div>
           <label className="label" htmlFor="ha-about">
@@ -466,11 +464,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
             ))}
           </div>
           <Row label="Город">
-            <RowSelect value={form.locality ?? ""} onChange={(v) => set({ locality: v, district: "" })} label="Город или посёлок">
-              {props.me.localities.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </RowSelect>
+            <CityPicker value={form.locality ?? ""} onChange={(v) => set({ locality: v, district: "" })} options={props.me.localities} className="flex min-w-0 flex-1 items-center justify-end gap-1.5 py-1 text-right" />
           </Row>
           <Row label="Район">
             {districts.length ? (

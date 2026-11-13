@@ -89,6 +89,7 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
 
     getListing: (id) => db.get<Listing>("listing", id),
     saveListing: (l) => db.put(listingRow(l)),
+    purgeListing: (id) => db.del("listing", id),
     async listListings(q) {
       let list: Listing[];
       if (q?.ownerId != null) list = await db.find<Listing>("listing", "g1", s(q.ownerId));

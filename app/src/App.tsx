@@ -169,6 +169,12 @@ export default function App() {
       onLogo={me.demo ? () => demoCode(refreshMe) : undefined}
       title={top ? TITLES[top.name] : undefined}
     >
+      {/* Старая демо-версия на Vercel: данные там не сохраняются — чтобы при проверке не путать с настоящим ботом */}
+      {location.hostname.endsWith("vercel.app") && (
+        <a href="https://max.ru/id637501884609_4_bot" className="mb-3 block rounded-lg bg-[#f6ecd9] px-3 py-2 text-[13px] text-warn">
+          Это старая демо-версия, данные здесь стираются. Проверяйте в настоящем боте в MAX →
+        </a>
+      )}
       {content}
       <DialogHost />
     </Shell>

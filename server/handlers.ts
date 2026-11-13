@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle, missingForSubmit } from "../shared/catalog.ts";
 import { addDays, busyNights, checkRange, isDate, price, todaySamara } from "../shared/dates.ts";
 import { autoCheck, hostHints } from "../shared/auto-check.ts";
+import { checkContact } from "./contact-check.ts";
 import { hasContacts, maskContacts, suspicion } from "../shared/trust.ts";
 import {
   CANCEL_OPTIONS,
@@ -598,10 +599,20 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const phone = str(body?.phone, 16);
       if (!PHONE_RE.test(phone)) return fail(400, "bad phone");
       if (limited(`ph:${uid}`, 10)) return fail(429, "too many");
+      // Номер из окна MAX приходит с подписью: проверяем её. Совпала и номер тот же — номер подтверждён
+      let verified = false;
+      if (body?.contact) {
+        const r = checkContact(body.contact, ctx.config.botToken);
+        const sameNumber = String((body.contact as any).phone ?? "").replace(/\D/g, "").slice(-10) === phone.replace(/\D/g, "").slice(-10);
+        verified = r.verified && sameNumber;
+        // Для наладки: какая схема подписи подошла и какие поля прислал MAX — без цифр номера
+        await ctx.store.kvSet("contactcheck:last", { at: t, verified, scheme: r.scheme, fields: r.fields, sameNumber });
+      }
       user.phone = phone;
+      user.phoneVerified = verified;
       user.consentAt = t;
       await ctx.store.saveUser(user);
-      return ok({ ok: true });
+      return ok({ ok: true, verified });
     }
 
     // --- гость ---------------------------------------------------------------------
@@ -1134,7 +1145,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/admin/listings": {
       // Все объявления площадки: фильтр по статусу и поиск по городу, адресу, номеру
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
-      const status = ["draft", "pending", "active", "rejected", "paused", "blocked"].includes(body?.status) ? [body.status] : undefined;
+      const status = ["draft", "pending", "active", "rejected", "paused", "blocked", "deleted"].includes(body?.status) ? [body.status] : undefined;
       const q = str(body?.q, 60).toLowerCase();
       const list = (await ctx.store.listListings({ status })).filter((l) => !q || `${l.locality} ${l.district} ${l.address} ${l.id}`.toLowerCase().includes(q)).slice(0, 100);
       return ok({
@@ -1144,7 +1155,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/admin/users": {
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
-      const users = await ctx.store.searchUsers(str(body?.q, 60), 50);
+      // Тестовые люди (проверка облака, демо — номера от 900 000 000) в настоящем боте не показываем
+      const users = (await ctx.store.searchUsers(str(body?.q, 60), 60)).filter((u) => ctx.config.demo || u.id < 900_000_000).slice(0, 50);
       const staff = await ctx.store.getStaff();
       const rows = await Promise.all(
         users.map(async (u) => ({
@@ -1154,6 +1166,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
           blocked: !!u.blocked,
           createdAt: u.createdAt,
           role: staff.find((m) => m.id === u.id)?.role ?? null,
+          phoneVerified: !!u.phoneVerified,
           listings: (await ctx.store.listListings({ ownerId: u.id })).length,
           bookings: (await ctx.store.listBookings({ guestId: u.id })).length,
         })),
@@ -1210,6 +1223,17 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       await ctx.store.saveListing(l);
       await send(ctx, l.ownerId, { text: `Объявление «${listingTitle(l)}» удалено администратором.\n${l.moderatorNote}` });
       await audit(ctx, uid, "удалил объявление", `${listingTitle(l)}, ${l.locality} (${l.id})`, l.moderatorNote);
+      return ok({ ok: true });
+    }
+
+    case "/admin/listing/purge": {
+      // Стереть насовсем уже удалённое объявление (только главный). Активное сначала удаляют обычным способом
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      const l = await ctx.store.getListing(str(body?.id, 16));
+      if (!l) return fail(404, "not found");
+      if (l.status !== "deleted") return fail(400, "bad status");
+      await ctx.store.purgeListing(l.id);
+      await audit(ctx, uid, "стёр объявление насовсем", `${listingTitle(l)}, ${l.locality} (${l.id})`);
       return ok({ ok: true });
     }
 

@@ -248,7 +248,8 @@ export interface ComplaintRow {
 
 export const api = {
   me: () => post<Me>("/me"),
-  phone: (phone: string) => post<{ ok: true }>("/phone", { phone, consent: true }),
+  // contact — то, что вернуло окно MAX «Поделиться номером» (с подписью): сервер проверит, что номер настоящий
+  phone: (phone: string, contact?: unknown) => post<{ ok: true; verified: boolean }>("/phone", { phone, consent: true, ...(contact ? { contact } : {}) }),
   search: (q: SearchQuery) => post<{ cards: ListingCard[] }>("/search", q),
   listing: (id: string) => post<{ listing: PublicListing; own: boolean }>("/listing", { id }),
   quote: (id: string, checkIn: string, checkOut: string) => post<{ nights?: number; total?: number; problem?: string }>("/quote", { id, checkIn, checkOut }),
@@ -263,6 +264,7 @@ export const api = {
   demoCode: (code: string) => post<{ role: "owner" | "moderator" }>("/demo/code", { code }),
   modCode: (rotate = false) => post<{ code: string }>("/admin/modcode", { rotate }),
   adminDeleteListing: (id: string, note: string) => post<{ ok: true }>("/admin/listing/delete", { id, note }),
+  adminPurgeListing: (id: string) => post<{ ok: true }>("/admin/listing/purge", { id }),
   adminCancelBooking: (id: string, note: string) => post<{ ok: true }>("/admin/booking/cancel", { id, note }),
   chatHide: (id: string) => post<{ ok: true }>("/chat/hide", { id }),
   chatDelete: (id: string, messageId: string) => post<{ ok: true }>("/chat/delete", { id, messageId }),

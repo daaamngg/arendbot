@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, ChevronLeft, Heart, KeyRound, LoaderCircle, Minus, Plus, Search, ShieldCheck } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, ChevronLeft, Heart, KeyRound, LoaderCircle, Minus, Plus, Search, ShieldCheck } from "lucide-react";
 import type { BookingStatus, ListingStatus } from "../../../shared/types.ts";
 import { api } from "../lib/api.ts";
 import { hasNativeBack, inMax, requestContact } from "../lib/max.ts";
@@ -159,11 +160,11 @@ export function PhoneGate(props: { why: string; onDone: (phone: string) => void 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const save = async (phone: string) => {
+  const save = async (phone: string, contact?: unknown) => {
     setBusy(true);
     setError(null);
     try {
-      await api.phone(phone);
+      await api.phone(phone, contact);
       props.onDone(phone);
     } catch {
       setError("Не получилось сохранить номер. Попробуйте ещё раз.");
@@ -178,7 +179,7 @@ export function PhoneGate(props: { why: string; onDone: (phone: string) => void 
     const c = await requestContact();
     setAsking(false);
     const phone = c ? normalizePhone(c.phone) : null;
-    if (phone) save(phone);
+    if (phone) save(phone, c);
     else setManual(true);
   };
 
@@ -244,5 +245,86 @@ export function PhoneGate(props: { why: string; onDone: (phone: string) => void 
       )}
       {error && <p className="mt-2 text-[14px] text-bad">{error}</p>}
     </section>
+  );
+}
+
+/** Самые нужные города — крупными плитками сверху шторки */
+const TOP_CITIES = ["Самара", "Тольятти", "Сызрань", "Новокуйбышевск", "Жигулёвск", "Чапаевск"];
+
+/**
+ * Выбор города: кнопка-строка, по нажатию — шторка снизу. Сверху поиск, ниже крупные плитки главных городов,
+ * под ними остальные посёлки списком. Вместо системного «барабана», который на телефоне неудобный и длинный
+ */
+export function CityPicker(props: { value: string; onChange: (v: string) => void; options: string[]; allLabel?: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const pick = (v: string) => {
+    props.onChange(v);
+    setOpen(false);
+    setQ("");
+  };
+  const needle = q.trim().toLowerCase();
+  const found = props.options.filter((c) => !needle || c.toLowerCase().includes(needle));
+  const top = TOP_CITIES.filter((c) => found.includes(c));
+  const rest = found.filter((c) => !TOP_CITIES.includes(c));
+  return (
+    <>
+      <button type="button" className={props.className ?? "flex min-w-0 flex-1 items-center justify-between gap-2 py-1 text-left"} onClick={() => setOpen(true)}>
+        <span className="truncate text-[15px] font-semibold text-ink">{props.value || props.allLabel || "Выбрать"}</span>
+        <ChevronDown size={16} className="shrink-0 text-dim" aria-hidden />
+      </button>
+      {/* Шторка — в конце страницы (портал): внутри строки-«label» анкеты нажатие по городу открывало бы шторку снова */}
+      {open && createPortal(
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40" onClick={() => setOpen(false)} role="dialog" aria-modal="true" aria-label="Выбор города">
+          <div className="flex max-h-[80dvh] w-full max-w-[560px] flex-col rounded-t-2xl bg-surface pb-[max(12px,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line" aria-hidden />
+            <div className="flex items-center justify-between px-4 pt-3 pb-2">
+              <span className="text-[17px] font-bold text-ink">Город</span>
+              <button className="text-[14px] font-semibold text-dim" onClick={() => setOpen(false)}>
+                Закрыть
+              </button>
+            </div>
+            <div className="px-4 pb-3">
+              <div className="flex items-center gap-2 rounded-xl border border-line bg-bg px-3">
+                <Search size={16} className="shrink-0 text-dim" />
+                <input className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] outline-none" placeholder="Найти город или посёлок" value={q} onChange={(e) => setQ(e.target.value)} />
+              </div>
+            </div>
+            <div className="overflow-y-auto px-4">
+              {props.allLabel && !needle && (
+                <button className={`mb-2 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left text-[15px] font-semibold ${!props.value ? "border-accent bg-accent-soft text-accent" : "border-line text-ink"}`} onClick={() => pick("")}>
+                  {props.allLabel}
+                  {!props.value && <Check size={18} />}
+                </button>
+              )}
+              {top.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {top.map((c) => (
+                    <button key={c} className={`flex items-center justify-between rounded-xl border px-3 py-3 text-left text-[15px] font-semibold ${props.value === c ? "border-accent bg-accent-soft text-accent" : "border-line bg-bg text-ink"}`} onClick={() => pick(c)}>
+                      <span className="truncate">{c}</span>
+                      {props.value === c && <Check size={16} className="shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {rest.length > 0 && (
+                <ul className="mt-3 divide-y divide-line">
+                  {rest.map((c) => (
+                    <li key={c}>
+                      <button className={`flex w-full items-center justify-between py-3 text-left text-[15px] ${props.value === c ? "font-semibold text-accent" : "text-ink"}`} onClick={() => pick(c)}>
+                        {c}
+                        {props.value === c && <Check size={16} />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {found.length === 0 && <p className="py-6 text-center text-[14px] text-dim">Не нашли «{q}». Сейчас площадка работает в Самарской области.</p>}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

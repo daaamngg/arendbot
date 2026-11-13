@@ -97,6 +97,7 @@ export function hostHints(input: { user: User; phoneTwins: User[]; asGuest: Book
   if ((u.strikes ?? 0) >= 2) flags.push("как гость дважды не приехал или отменил в последний момент");
   if (a && (hasContacts(a.about) || STOP_WORDS.test(a.about))) flags.push("в «о себе» контакты или просьба о предоплате");
   if (a && RUDE.test(`${a.name} ${a.about}`)) flags.push("мат в заявке");
+  if (u.phoneVerified) good.push("номер подтверждён через MAX");
   const days = Math.floor((now - u.createdAt) / 86_400_000);
   if (days >= 7) good.push(`в боте ${days} дн.`);
   const stayed = asGuest.filter((b) => b.status === "confirmed" && b.reviewed).length;

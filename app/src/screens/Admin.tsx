@@ -49,18 +49,9 @@ export function AdminScreen(props: { owner: boolean }) {
     <>
       <H1>{props.owner ? "Админ" : "Модератор"}</H1>
       {stats && (
-        <div className="mb-4 grid grid-cols-3 gap-2 text-center">
-          {[
-            ["В поиске", stats.listings.active ?? 0],
-            ["Броней за неделю", stats.bookingsWeek],
-            ["Людей", stats.users],
-          ].map(([t, v]) => (
-            <div key={t} className="card px-2 py-2.5">
-              <div className="text-[20px] font-bold text-ink tabular-nums">{v}</div>
-              <div className="text-[12px] leading-tight text-dim">{t}</div>
-            </div>
-          ))}
-        </div>
+        <p className="-mt-2 mb-3 text-[13px] text-dim">
+          В поиске <b className="text-ink tabular-nums">{stats.listings.active ?? 0}</b> · броней за неделю <b className="text-ink tabular-nums">{stats.bookingsWeek}</b> · людей <b className="text-ink tabular-nums">{stats.users}</b>
+        </p>
       )}
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]" role="tablist">
         {sections.map((s) => (
@@ -256,6 +247,7 @@ const STATUS_FILTER: [string, string][] = [
   ["blocked", "Сняты"],
   ["rejected", "Возвращены"],
   ["paused", "На паузе"],
+  ["deleted", "Удалённые"],
 ];
 
 function AllListings(props: { act: Act }) {
@@ -304,6 +296,14 @@ function AllListings(props: { act: Act }) {
                       }}
                     >
                       Снять
+                    </button>
+                  )}
+                  {l.status === "deleted" && (
+                    <button
+                      className="font-semibold text-bad"
+                      onClick={async () => (await ask("Стереть насовсем?", { text: "Объявление исчезнет из базы. Вернуть его будет нельзя.", ok: "Стереть", danger: true })) && props.act(() => api.adminPurgeListing(l.id), "Объявление стёрто.", load)}
+                    >
+                      Стереть насовсем
                     </button>
                   )}
                   {l.status !== "deleted" && (
