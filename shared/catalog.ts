@@ -60,9 +60,8 @@ export function missingForSubmit(l: Listing): string[] {
   if (!l.address.trim()) m.push("улица и дом");
   if (!(l.priceWeekday > 0) || !(l.priceWeekend > 0)) m.push("цена");
   if (!(l.guests > 0)) m.push("сколько гостей");
-  // Хватит пары слов: «Тихо, рядом парк». Длинные тексты никто не читает
-  if (l.description.trim().length < 8) m.push("описание (пара слов)");
-  if (l.photos.length < 3) m.push("фото (минимум 3)");
+  // Описание необязательно: фото, цена и адрес говорят больше
+  if (l.photos.length < 2) m.push("фото (минимум 2)");
   return m;
 }
 

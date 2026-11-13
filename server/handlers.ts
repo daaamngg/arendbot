@@ -1083,6 +1083,15 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       return r ? fail(400, r) : ok({ ok: true });
     }
 
+    case "/admin/complaints/clear": {
+      // Очистить все открытые жалобы разом (после разбора или если это спам)
+      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      const open = await ctx.store.listComplaints({ open: true });
+      for (const c of open) await ctx.store.saveComplaint({ ...c, resolved: true, dismissed: true });
+      await audit(ctx, uid, "очистил жалобы", String(open.length));
+      return ok({ cleared: open.length });
+    }
+
     case "/admin/moderate": {
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
       const l = await ctx.store.getListing(str(body?.id, 16));
@@ -1382,6 +1391,8 @@ async function resolveComplaint(ctx: Ctx, complaintId: string, action: unknown, 
   if (c.resolved) return "already resolved";
   const l = await ctx.store.getListing(c.listingId);
   c.resolved = true;
+  // «Удалить» — жалоба пустая или ложная: убираем из списка и не считаем против хозяина
+  if (action === "dismiss") c.dismissed = true;
   await ctx.store.saveComplaint(c);
   if (l && action === "hide" && l.status === "active") {
     l.status = "blocked";
@@ -1391,7 +1402,7 @@ async function resolveComplaint(ctx: Ctx, complaintId: string, action: unknown, 
     await send(ctx, l.ownerId, { text: `Объявление «${listingTitle(l)}» скрыто модератором после жалобы гостя. Если это ошибка, напишите сюда.` });
   }
   if (l && action === "ban") await banUser(ctx, l.ownerId, "Хозяин заблокирован модератором.");
-  const verdict = action === "hide" ? "Объявление скрыто" : action === "ban" ? "Хозяин заблокирован" : "Всё в порядке";
+  const verdict = action === "hide" ? "Объявление скрыто" : action === "ban" ? "Хозяин заблокирован" : action === "dismiss" ? "Жалоба удалена" : "Всё в порядке";
   await editAll(ctx, `c-${c.id}`, { text: `Жалоба на «${l ? listingTitle(l) : "объявление"}»\n${verdict}` });
   if (by != null) await audit(ctx, by, `жалоба: ${verdict.toLowerCase()}`, l ? `${listingTitle(l)}, ${l.locality} (${l.id})` : c.listingId);
   return null;

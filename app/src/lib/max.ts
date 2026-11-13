@@ -54,7 +54,9 @@ export async function requestContact(): Promise<MaxContact | null> {
   const a = app();
   if (!a?.requestContact) return null;
   try {
-    return await a.requestContact();
+    // Окно MAX «Поделиться номером» иногда не появляется или не отвечает — тогда через 12 секунд
+    // сдаёмся и показываем поле для ввода номера руками (раньше приложение ждало вечно и «зависало»)
+    return await Promise.race([a.requestContact(), new Promise<null>((r) => setTimeout(() => r(null), 12_000))]);
   } catch {
     return null;
   }

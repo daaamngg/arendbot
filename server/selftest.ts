@@ -108,7 +108,7 @@ const form = {
 const saved = (await call("/host/save", HOST, { form })).json;
 const L = saved.listing.id as string;
 check("черновик сохранён, чужое удобство отброшено", saved.listing.status === "draft" && !saved.listing.amenities.includes("Взлом"));
-check("без фото отправить нельзя", (await call("/host/submit", HOST, { id: L })).json.missing?.includes("фото (минимум 3)"));
+check("без фото отправить нельзя", (await call("/host/submit", HOST, { id: L })).json.missing?.includes("фото (минимум 2)"));
 check("чужой хозяин не видит черновик", (await call("/host/listing", GUEST, { id: L })).status === 404);
 
 // Фото через чат бота
@@ -713,6 +713,32 @@ await approveHost(HOST6);
   check("заявка: бот отметил просьбу о предоплате", flags.includes("предоплат") && !flags.includes("странное имя"));
   check("заявка: модератору в чат пришли подсказки бота", lastTo(ADMIN)?.text.includes("Бот: проверьте") === true);
   check("заявка не одобряется ботом сама — ждёт человека", (await ctx.store.getUser(HA))?.hostStatus === "pending");
+}
+
+// --- Правки 13.11: 2 фото, описание необязательно, удаление и очистка жалоб ----------------------
+{
+  const HQ = 178;
+  await call("/phone", HQ, { phone: "+79270000178", consent: true });
+  await approveHost(HQ);
+  const id = (await call("/host/save", HQ, { form: { ...form, address: "ул. Двухфоточная, 2", description: "" } })).json.listing.id as string;
+  await call("/host/photos-request", HQ, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HQ }, body: { text: "", attachments: [img(500), img(501)] } } });
+  const r = (await call("/host/submit", HQ, { id })).json;
+  check("2 фото и без описания — можно опубликовать", r.live === true || (await ctx.store.getListing(id))?.status === "active");
+  // Жалобы: удалить одну, очистить все
+  const G = 185;
+  await call("/phone", G, { phone: "+79270000185", consent: true });
+  await call("/complaint", G, { id, reason: "fake", text: "фейк" });
+  await call("/complaint", 186, { id, reason: "prepay", text: "" });
+  const open1 = (await call("/admin/pending", ADMIN)).json.complaints.filter((c: any) => c.listingId === id);
+  check("жалобы пришли в админку", open1.length >= 1);
+  await call("/admin/complaint", ADMIN, { id: open1[0].id, action: "dismiss" });
+  const after = (await call("/admin/pending", ADMIN)).json.complaints.filter((c: any) => c.listingId === id);
+  check("удалённая жалоба пропала из списка", !after.some((c: any) => c.id === open1[0].id));
+  const cl = (await call("/admin/complaints/clear", ADMIN)).json;
+  check("«Очистить все» убрал остальные", typeof cl.cleared === "number" && (await call("/admin/pending", ADMIN)).json.complaints.length === 0);
+  check("удалённые жалобы не считаются против хозяина", (await ctx.store.listComplaints({})).filter((c) => c.listingId === id).every((c) => c.dismissed));
+  check("простой человек жалобы не очистит", (await call("/admin/complaints/clear", GUEST)).status === 403);
 }
 
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");

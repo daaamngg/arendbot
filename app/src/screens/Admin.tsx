@@ -151,9 +151,17 @@ function Complaints(props: { act: Act; owner: boolean }) {
   if (!complaints.length) return <p className="text-dim">Жалоб нет.</p>;
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-2 text-[17px] font-bold text-ink">
-        <Flag size={17} /> Жалобы гостей
-      </h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-[17px] font-bold text-ink">
+          <Flag size={17} /> Жалобы гостей · {complaints.length}
+        </h2>
+        <button
+          className="text-[14px] font-semibold text-dim"
+          onClick={async () => (await ask("Очистить все жалобы?", { text: "Они уйдут из списка и не будут считаться против хозяев.", ok: "Очистить" })) && props.act(() => api.clearComplaints(), "Жалобы очищены.", load)}
+        >
+          Очистить все
+        </button>
+      </div>
       <ul className="space-y-3">
             {complaints.map((c) => (
               <li key={c.id} className="card p-4 text-[14px]">
@@ -174,6 +182,9 @@ function Complaints(props: { act: Act; owner: boolean }) {
                 >
                   Заблокировать хозяина
                 </button>}
+                <button className="mt-2 w-full text-[14px] font-semibold text-dim" onClick={() => props.act(() => api.resolveComplaint(c.id, "dismiss"), "Жалоба удалена.", load)}>
+                  Удалить жалобу (пустая или ложная)
+                </button>
               </li>
             ))}
       </ul>

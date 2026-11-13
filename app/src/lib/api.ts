@@ -289,7 +289,8 @@ export const api = {
 
   pending: () => post<{ listings: (Listing & { title: string; held: string[] })[]; complaints: ComplaintRow[] }>("/admin/pending"),
   moderate: (id: string, ok: boolean, reason?: string) => post<{ listing: Listing }>("/admin/moderate", { id, ok, reason }),
-  resolveComplaint: (id: string, action: "hide" | "ban" | "ok") => post<{ ok: true }>("/admin/complaint", { id, action }),
+  resolveComplaint: (id: string, action: "hide" | "ban" | "ok" | "dismiss") => post<{ ok: true }>("/admin/complaint", { id, action }),
+  clearComplaints: () => post<{ cleared: number }>("/admin/complaints/clear"),
   adminListings: (status: string, q: string) => post<{ listings: AdminListing[] }>("/admin/listings", { status: status || undefined, q }),
   adminHide: (id: string, note: string) => post<{ listing: Listing }>("/admin/block", { id, note }),
   adminRestore: (id: string) => post<{ listing: Listing }>("/admin/restore", { id }),

@@ -44,9 +44,16 @@ export default function App() {
   stackRef.current = stack;
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  const depth = useRef(0);
   useEffect(() => {
     history.replaceState({ app: 0 }, "");
+    // Открыли сразу на вкладке «Сдать»/«Админ» или в переписке — даём шаг назад к «Поиску»
+    if (initialTab !== "search" || initialStack.length) {
+      history.pushState({ app: 1 }, "");
+      depth.current = 1;
+    }
     const onPop = () => {
+      depth.current = Math.max(0, depth.current - 1);
       if (stackRef.current.length) {
         setStack((st) => st.slice(0, -1));
         // Вернулись из переписки — значок непрочитанных мог измениться
@@ -60,11 +67,18 @@ export default function App() {
 
   const push = (s: Screen) => {
     history.pushState({ app: 1 }, "");
+    depth.current++;
     setStack((st) => [...st, s]);
     window.scrollTo({ top: 0 });
   };
   // Кнопки «Назад» на экране и в шапке MAX идут через историю — так она не расходится с экранами
-  const back = useCallback(() => history.back(), []);
+  const back = useCallback(() => {
+    if (depth.current > 0) return history.back();
+    // Своих шагов в истории нет — возвращаемся без браузера, иначе кнопка «Назад» молча ничего не делает
+    if (stackRef.current.length) setStack((st) => st.slice(0, -1));
+    else if (tabRef.current !== "search") setTab("search");
+    window.scrollTo({ top: 0 });
+  }, []);
   useEffect(() => bindBackButton(stack.length > 0 || tab !== "search", back), [stack.length, tab, back]);
 
   const onPhone = (phone: string) => setMe((m) => (m ? { ...m, user: { ...m.user, phone, consent: true } } : m));
@@ -138,7 +152,10 @@ export default function App() {
       tab={tab}
       onTab={(t) => {
         // С «Поиска» на другую вкладку — шаг в истории (чтобы «Назад» вернул на поиск, а не закрыл приложение)
-        if (tab === "search" && t !== "search" && !stack.length) history.pushState({ app: 1 }, "");
+        if (tab === "search" && t !== "search" && !stack.length) {
+          history.pushState({ app: 1 }, "");
+          depth.current++;
+        }
         setTab(t);
         setStack([]);
         window.scrollTo({ top: 0 });

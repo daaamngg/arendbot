@@ -172,8 +172,11 @@ export function PhoneGate(props: { why: string; onDone: (phone: string) => void 
     }
   };
 
+  const [asking, setAsking] = useState(false);
   const share = async () => {
+    setAsking(true);
     const c = await requestContact();
+    setAsking(false);
     const phone = c ? normalizePhone(c.phone) : null;
     if (phone) save(phone);
     else setManual(true);
@@ -199,6 +202,27 @@ export function PhoneGate(props: { why: string; onDone: (phone: string) => void 
         />
         <span className="text-[14px] leading-snug">Согласен на обработку персональных данных по политике площадки</span>
       </label>
+      {/* Ждём окно MAX — видно, что идёт работа; и всегда можно ввести номер руками */}
+      {asking && !manual && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-[14px] text-dim">
+          <span className="flex items-center gap-2">
+            <LoaderCircle className="animate-spin" size={16} /> Ждём номер из MAX…
+          </span>
+          <button className="font-semibold text-accent" onClick={() => setManual(true)}>
+            Ввести вручную
+          </button>
+        </div>
+      )}
+      {busy && !manual && (
+        <p className="mt-3 flex items-center gap-2 text-[14px] text-dim">
+          <LoaderCircle className="animate-spin" size={16} /> Сохраняем…
+        </p>
+      )}
+      {!manual && !asking && !busy && consent && (
+        <button className="mt-3 text-[14px] font-semibold text-accent" onClick={() => setManual(true)}>
+          Ввести номер вручную
+        </button>
+      )}
       {manual && (
         <form
           className="mt-3 flex gap-2"

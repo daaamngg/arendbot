@@ -141,6 +141,25 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
                 <button onClick={() => props.onCalendar(r.id)}>Календарь</button>
               </div>
             </div>
+            {/* Удалить, не заходя в анкету */}
+            {r.status !== "blocked" && (
+              <button
+                className="grid size-10 shrink-0 place-items-center self-start rounded-full text-dim active:bg-surface-2"
+                aria-label="Удалить объявление"
+                onClick={async () => {
+                  const ok = await ask("Удалить объявление?", { text: "Его больше никто не увидит. Запросы, которые ждут ответа, отклонятся, гостям придёт сообщение.", ok: "Удалить", danger: true });
+                  if (!ok) return;
+                  try {
+                    await api.deleteListing(r.id);
+                    setRows((x) => x?.filter((y) => y.id !== r.id) ?? x);
+                  } catch (e) {
+                    tell("Не получилось удалить", errorText(e));
+                  }
+                }}
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -398,7 +417,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
 
       <div className="space-y-5">
         {/* Фото — первыми: это главное, что видит гость. Плитка «+» в конце сетки */}
-        <Group title="Фото" hint={`${photos.length} из ${MAX_PHOTOS}, минимум 3. Первое станет обложкой`}>
+        <Group title="Фото" hint={`${photos.length} из ${MAX_PHOTOS}, минимум 2. Первое станет обложкой`}>
           <ul className="grid grid-cols-3 gap-2 p-3">
             {photos.map((p, i) => (
               <li key={p.url} className="relative overflow-hidden rounded-lg">
@@ -524,7 +543,11 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           </div>
         </Group>
 
-        <Group title="Правила и удобства">
+        <Group
+          title="Правила и удобства"
+          fold
+          summary={[...(["kids", "pets", "smoking", "parties"] as const).filter((k) => form.rules?.[k]).map((k) => ({ kids: "с детьми", pets: "с животными", smoking: "курить", parties: "вечеринки" })[k]), ...(form.amenities ?? [])].join(", ") || "не выбрано"}
+        >
           <div className="flex flex-wrap gap-2 px-4 py-3">
             {(
               [
@@ -548,7 +571,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           </div>
         </Group>
 
-        <Group title="Описание">
+        <Group title="Описание" hint="необязательно" fold summary={(form.description ?? "").trim() ? (form.description ?? "").trim().slice(0, 60) : "можно не заполнять"}>
           <textarea
             id="f-desc"
             className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] text-ink outline-none"
@@ -582,7 +605,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
       {/* Удалить совсем. Подтверждённые будущие брони сервер не даст бросить — скажет отменить их сначала */}
       {l && l.status !== "blocked" && (
         <button
-          className="mt-4 block text-[14px] font-semibold text-bad"
+          className="mt-8 mb-10 block text-[14px] font-semibold text-bad"
           onClick={async () => {
             const ok = await ask("Удалить объявление?", {
               text: "Его больше никто не увидит. Запросы, которые ждут ответа, отклонятся, гостям придёт сообщение.",
@@ -618,14 +641,23 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
 }
 
 /** Раздел анкеты: подпись сверху, внутри — карточка со строками, как поиск на главном экране */
-function Group(props: { title: string; hint?: string; children: ReactNode }) {
+function Group(props: { title: string; hint?: string; fold?: boolean; summary?: string; children: ReactNode }) {
+  // fold — раздел свёрнут в одну строку с кратким итогом: анкета короче, листать меньше
+  const [open, setOpen] = useState(!props.fold);
   return (
     <section>
       <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
         <h2 className="text-[15px] font-bold text-ink">{props.title}</h2>
         {props.hint && <span className="text-right text-[12px] text-dim">{props.hint}</span>}
       </div>
-      <div className="card divide-y divide-line">{props.children}</div>
+      {props.fold && !open ? (
+        <button type="button" className="card flex w-full items-center justify-between gap-3 px-4 py-3 text-left" onClick={() => setOpen(true)}>
+          <span className="min-w-0 truncate text-[14px] text-dim">{props.summary}</span>
+          <span className="shrink-0 text-[14px] font-semibold text-accent">Изменить</span>
+        </button>
+      ) : (
+        <div className="card divide-y divide-line">{props.children}</div>
+      )}
     </section>
   );
 }

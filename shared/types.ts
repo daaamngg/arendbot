@@ -191,6 +191,8 @@ export interface Complaint {
   text: string;
   createdAt: number;
   resolved?: boolean;
+  /** удалена командой как пустая/ложная — не считается против хозяина в автопроверке */
+  dismissed?: boolean;
 }
 
 export const COMPLAINT_REASONS: { id: string; title: string }[] = [

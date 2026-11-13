@@ -68,7 +68,7 @@ export function autoCheck({ listing: l, owner, all, complaints, phoneTwins = [],
   // 4. Человек: номер заблокированного, жалобы на обман, спам объявлениями
   if (phoneTwins.some((u) => u.blocked)) r.push("номер хозяина был у заблокированного за нарушения");
   const myIds = new Set([l.id, ...mine.map((x) => x.id)]);
-  const fraud = complaints.filter((c) => myIds.has(c.listingId) && (c.reason === "fake" || c.reason === "prepay"));
+  const fraud = complaints.filter((c) => myIds.has(c.listingId) && !c.dismissed && (c.reason === "fake" || c.reason === "prepay"));
   if (fraud.length >= 2) r.push(`жалобы на обман или предоплату: ${fraud.length}`);
   if (mine.filter((x) => now - x.createdAt < 24 * 3600_000).length >= 10) r.push("больше 10 объявлений за сутки — похоже на спам");
 
