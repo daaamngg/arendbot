@@ -741,5 +741,21 @@ await approveHost(HOST6);
   check("простой человек жалобы не очистит", (await call("/admin/complaints/clear", GUEST)).status === 403);
 }
 
+// --- Одобренный хозяин — обычный пользователь: может сдавать, но без прав команды --------------
+{
+  const HN = 179;
+  await call("/phone", HN, { phone: "+79270000179", consent: true });
+  await call("/host/apply", HN, { name: "Обычный Хозяин", city: "Самара", about: "" });
+  await processUpdate(ctx, { update_type: "message_callback", callback: { callback_id: "c", user: { user_id: ADMIN }, payload: `ha:ok:${HN}` } });
+  const me = (await call("/me", HN)).json;
+  check("одобренный хозяин может сдавать", me.host === "approved" && (await call("/host/save", HN, { form: { ...form, address: "ул. Обычная, 1" } })).status === 200);
+  check("но не модератор и не главный — вкладки админки нет", me.admin === false && me.owner === false);
+  const adminRoutes = ["/admin/pending", "/admin/applications", "/admin/bookings", "/admin/listings", "/admin/users", "/admin/stats", "/admin/staff", "/admin/audit", "/admin/modcode", "/admin/complaints/clear"];
+  const codes = await Promise.all(adminRoutes.map(async (p) => (await call(p, HN)).status));
+  check("ни один раздел админки ему не доступен", codes.every((c) => c === 403));
+  await processUpdate(ctx, { update_type: "message_callback", callback: { callback_id: "c", user: { user_id: HN }, payload: `ha:ok:${HN + 1}` } });
+  check("кнопки модератора в боте он тоже нажать не может", (await ctx.store.getUser(HN + 1))?.hostStatus !== "approved");
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);
