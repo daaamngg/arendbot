@@ -810,20 +810,23 @@ export function HostCalendar(props: { id: string }) {
   return (
     <>
       <H1 sub={title}>Календарь</H1>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <button className="btn btn-line size-10 min-h-0 p-0" onClick={() => shiftMonth(-1)} disabled={month <= today.slice(0, 7)} aria-label="Прошлый месяц">
           <ArrowLeft size={18} />
         </button>
-        <b className="text-ink">
-          {MONTHS[m - 1]} {y}
-        </b>
+        {/* Строка «Сохраняем…» висит под названием месяца и не сдвигает его с центра */}
+        <div className="relative text-center">
+          <b className="block text-ink">
+            {MONTHS[m - 1]} {y}
+          </b>
+          <span className={`absolute inset-x-0 top-full mt-0.5 whitespace-nowrap text-[12px] leading-4 ${saving === "error" ? "text-bad" : "text-dim"}`} aria-live="polite">
+            {saving === "saving" ? "Сохраняем…" : saving === "error" ? "Нет связи, повторим сами" : ""}
+          </span>
+        </div>
         <button className="btn btn-line size-10 min-h-0 p-0" onClick={() => shiftMonth(1)} aria-label="Следующий месяц">
           <ArrowRight size={18} />
         </button>
       </div>
-      <p className={`mb-2 h-5 text-[13px] ${saving === "error" ? "text-bad" : "text-dim"}`} aria-live="polite">
-        {saving === "saving" ? "Сохраняем…" : saving === "error" ? "Нет связи, повторим сами" : ""}
-      </p>
       <div className="grid grid-cols-7 gap-1 text-center text-[13px]">
         {WEEK.map((w) => (
           <div key={w} className="py-1 text-dim">

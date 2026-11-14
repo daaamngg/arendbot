@@ -47,7 +47,7 @@ export const AMENITIES = [
 
 /** «2-комн. квартира, 54 м²», «Студия, 28 м²», «Дом, 3 комнаты» */
 export function listingTitle(l: Pick<Listing, "type" | "rooms" | "area">) {
-  const area = l.area ? `, ${l.area} м²` : "";
+  const area = l.area ? `, ${l.area} м²` : "";
   if (l.type === "flat") return `${l.rooms}-комн. квартира${area}`;
   if (l.type === "house") return `Дом, ${l.rooms} комн.${area}`;
   return `${PLACE_TYPES.find((t) => t.id === l.type)?.title ?? "Жильё"}${area}`;

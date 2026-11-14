@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Flag, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { ChevronRight, Flag, Home, Lock, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
 import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
@@ -288,18 +288,18 @@ function AllListings(props: { act: Act }) {
         <ul className="card divide-y divide-line">
           {list.map((l) => (
             <li key={l.id} className="flex gap-3 p-3 text-[14px]">
-              <div className="size-14 shrink-0 overflow-hidden rounded-lg bg-surface-2">{l.photo && <img src={l.photo} alt="" className="size-full object-cover" />}</div>
+              <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2 text-dim">{l.photo ? <img src={l.photo} alt="" className="size-full object-cover" /> : <Home size={20} aria-hidden />}</div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-ink">{l.title}</div>
-                <div className="truncate text-dim">
-                  {l.locality}, {l.address}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-3">
+                <div className="truncate text-dim">{[l.locality, l.address].filter(Boolean).join(", ")}</div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   <Badge listing={l.status} />
                   {l.status === "active" && l.botChecked && <span className="text-[12px] font-semibold text-ok">проверено ботом</span>}
+                </div>
+                <div className="mt-2.5 flex flex-wrap gap-2">
                   {l.status === "active" && (
                     <button
-                      className="font-semibold text-bad"
+                      className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => {
                         const note = await askText("Почему снимаете?", "Нарушение правил площадки.", { text: "Хозяин увидит причину.", ok: "Снять", danger: true });
                         if (note !== null) props.act(() => api.adminHide(l.id, note), "Объявление снято.", load);
@@ -310,7 +310,7 @@ function AllListings(props: { act: Act }) {
                   )}
                   {(l.status === "deleted" || l.status === "blocked") && (
                     <button
-                      className="font-semibold text-bad"
+                      className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => (await ask("Стереть насовсем?", { text: "Объявление исчезнет из базы. Вернуть его будет нельзя.", ok: "Стереть", danger: true })) && props.act(() => api.adminPurgeListing(l.id), "Объявление стёрто.", load)}
                     >
                       Стереть насовсем
@@ -318,7 +318,7 @@ function AllListings(props: { act: Act }) {
                   )}
                   {l.status !== "deleted" && l.status !== "blocked" && (
                     <button
-                      className="font-semibold text-bad"
+                      className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => {
                         const note = await askText("Удалить объявление?", "Удалено администратором площадки.", { text: "Ждущие запросы отклонятся, подтверждённые брони отменятся. Хозяин получит причину.", ok: "Удалить", danger: true });
                         if (note !== null) props.act(() => api.adminDeleteListing(l.id, note), "Объявление удалено.", load);
@@ -328,7 +328,7 @@ function AllListings(props: { act: Act }) {
                     </button>
                   )}
                   {(l.status === "blocked" || l.status === "rejected") && (
-                    <button className="font-semibold text-accent" onClick={() => props.act(() => api.adminRestore(l.id), "Объявление снова в поиске.", load)}>
+                    <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminRestore(l.id), "Объявление снова в поиске.", load)}>
                       Вернуть в поиск
                     </button>
                   )}
@@ -442,7 +442,7 @@ function Team(props: { act: Act; owner: boolean }) {
     <>
       <ul className="card divide-y divide-line">
         {staff.map((m) => (
-          <li key={m.id} className="flex items-center justify-between gap-2 p-3 text-[14px]">
+          <li key={m.id} className="flex items-center justify-between gap-4 px-4 py-3.5 text-[14px]">
             <div>
               <div className="font-semibold text-ink">{m.name ?? `MAX ${m.id}`}</div>
               <div className="text-dim">
@@ -452,11 +452,11 @@ function Team(props: { act: Act; owner: boolean }) {
             </div>
             {props.owner && (
               <button
-                className="flex shrink-0 items-center gap-1 font-semibold text-bad"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                 onClick={async () => (await ask(`Убрать ${m.name ?? "человека"} из модераторов?`, { ok: "Убрать", danger: true })) && props.act(() => api.staffRemove(m.id), "Убран из модераторов.", load)}
                 aria-label="Убрать из модераторов"
               >
-                <UserMinus size={16} /> Убрать
+                <UserMinus size={14} aria-hidden /> Убрать
               </button>
             )}
           </li>
@@ -592,7 +592,11 @@ function Log() {
             {e.note && <div className="text-dim">«{e.note}»</div>}
             <div className="mt-0.5 text-[12px] text-dim">{when(e.at)}</div>
           </div>
-          {!e.locked && (
+          {e.locked ? (
+            <span className="grid size-9 shrink-0 place-items-center text-line" title="Эту запись удалить нельзя">
+              <Lock size={16} aria-label="Эту запись удалить нельзя" />
+            </span>
+          ) : (
             <button className="grid size-9 shrink-0 place-items-center rounded-full text-dim active:bg-surface-2" aria-label="Удалить запись" onClick={() => remove(e)}>
               <Trash2 size={17} />
             </button>
