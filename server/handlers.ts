@@ -9,6 +9,7 @@ import {
   COMPLAINT_REASONS,
   BOOKING_LIMITS,
   HOLDING,
+  NEW_DAYS,
   PLACE_TYPES,
   type Booking,
   type ChatThread,
@@ -259,12 +260,17 @@ export function decideDeadline(createdAt: number, hours: number) {
 
 const starsOf = (l: Listing) => (l.rating?.count ? Math.round((l.rating.sum / l.rating.count) * 10) / 10 : null);
 
-function card(l: Listing, range?: { checkIn: string; checkOut: string }): ListingCard {
+/** Первая публикация. У старых объявлений даты нет — берём отправку на проверку или создание */
+const publishedOf = (l: Listing) => l.publishedAt ?? l.submittedAt ?? l.createdAt;
+
+function card(l: Listing, range?: { checkIn: string; checkOut: string }, t = Date.now()): ListingCard {
   const p = range ? price(l, range.checkIn, range.checkOut) : null;
   return {
+    isNew: !l.rating?.count && t - publishedOf(l) < NEW_DAYS * 86_400_000,
     stars: starsOf(l),
     reviews: l.rating?.count ?? 0,
     createdAt: l.createdAt,
+    publishedAt: publishedOf(l),
     id: l.id,
     type: l.type,
     title: listingTitle(l),
@@ -316,6 +322,7 @@ async function publishOrHold(ctx: Ctx, l: Listing, ownerPhone: string | null, ag
   l.botChecked = live;
   l.botReasons = held.length ? held : undefined;
   if (live) l.approvedPrice = Math.min(l.priceWeekday, l.priceWeekend);
+  if (live) l.publishedAt ??= now(ctx);
   await ctx.store.saveListing(l);
   if (live) await audit(ctx, BOT_ID, again ? "бот одобрил изменения" : "бот одобрил объявление", `${listingTitle(l)} (${l.id})`);
   // Модератору пишем только когда нужна его проверка
@@ -604,7 +611,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       // Номер из окна MAX приходит с подписью: проверяем её. Совпала и номер тот же — номер подтверждён
       let verified = false;
       if (body?.contact) {
-        const r = checkContact(body.contact, ctx.config.botToken);
+        const r = checkContact(body.contact, ctx.config.botToken, uid);
         const sameNumber = String((body.contact as any).phone ?? (body.contact as any).phone_number ?? "").replace(/\D/g, "").slice(-10) === phone.replace(/\D/g, "").slice(-10);
         verified = r.verified && sameNumber;
         // Для наладки: какая схема подписи подошла и какие поля прислал MAX — без цифр номера
@@ -635,13 +642,13 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         .filter((l) => (!pets || l.rules.pets) && (!kids || l.rules.kids) && need.every((a) => l.amenities.includes(a)))
         // На выбранные даты — только свободное: «объявления сразу схватываются» и честно показывают занятость
         .filter((l) => !range || !checkRange(l, bookings.filter((b) => b.listingId === l.id), range.checkIn, range.checkOut, t))
-        .map((l) => card(l, range))
+        .map((l) => card(l, range, t))
         .filter((c) => !priceMax || (c.total != null && c.nights ? c.total / c.nights : c.priceFrom) <= priceMax)
         .sort((x, y) =>
           sort === "rating"
             ? (y.stars ?? 0) - (x.stars ?? 0) || y.reviews - x.reviews
             : sort === "new"
-              ? y.createdAt - x.createdAt
+              ? y.publishedAt - x.publishedAt
               : (x.total ?? x.priceFrom) - (y.total ?? y.priceFrom),
         );
       return ok({ cards });
@@ -840,7 +847,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/favorites": {
       const list = await Promise.all((user.favorites ?? []).map((id) => ctx.store.getListing(id)));
-      return ok({ cards: list.filter((l): l is Listing => !!l && l.status === "active").map((l) => card(l)) });
+      return ok({ cards: list.filter((l): l is Listing => !!l && l.status === "active").map((l) => card(l, undefined, t)) });
     }
 
     case "/review": {
@@ -1368,7 +1375,9 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/admin/stats": {
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
-      const [listings, bookings, users, complaints] = await Promise.all([ctx.store.listListings(), ctx.store.listBookings(), ctx.store.countUsers(), ctx.store.listComplaints({ open: true })]);
+      const [listings, bookings, people, complaints] = await Promise.all([ctx.store.listListings(), ctx.store.listBookings(), ctx.store.searchUsers("", 100_000), ctx.store.listComplaints({ open: true })]);
+      // Тестовые (проверка облака, демо — номера от 900 000 000) и удалённые в счёт не идут
+      const users = people.filter((u) => !u.deletedAt && u.id < 900_000_000).length;
       const by = (arr: { status: string }[]) => arr.reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] ?? 0) + 1), acc), {});
       const weekAgo = t - 7 * 86_400_000;
       return ok({
@@ -1379,6 +1388,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         confirmedSum: bookings.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + b.total, 0),
         openComplaints: complaints.length,
         pendingHosts: (await ctx.store.listHostApplicants("pending")).length,
+        toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length,
       });
     }
 
@@ -1413,6 +1423,7 @@ async function moderate(ctx: Ctx, l: Listing, approve: boolean, note: string, by
   l.status = approve ? "active" : "rejected";
   l.checked = approve;
   if (approve) l.approvedPrice = Math.min(l.priceWeekday, l.priceWeekend);
+  if (approve) l.publishedAt ??= now(ctx);
   l.moderatorNote = approve ? undefined : note;
   l.updatedAt = now(ctx);
   await ctx.store.saveListing(l);

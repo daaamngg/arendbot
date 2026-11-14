@@ -992,5 +992,35 @@ await approveHost(HOST6);
   check("вход в команду не удалить", (await call("/admin/audit/delete", ADMIN, { id: login.id })).json.error === "locked");
 }
 
+// --- 14.11: «новое» 14 дней, подпись номера по документации MAX, цифры админки без тестовых ------------
+{
+  const { createHmac } = await import("node:crypto");
+  const { checkContact } = await import("./contact-check.ts");
+  const HN = 199;
+  await call("/phone", HN, { phone: "+79270000199", consent: true });
+  await approveHost(HN);
+  const id = (await call("/host/save", HN, { form: { ...form, address: "ул. Новая, 14", description: "Свежий ремонт, рядом парк и остановка автобуса" } })).json.listing.id as string;
+  await call("/host/photos-request", HN, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HN }, body: { text: "", attachments: [img(981), img(982)] } } });
+  await call("/host/submit", HN, { id });
+  const cardOf = async () => (await call("/search", 299, {})).json.cards.find((c: any) => c.id === id);
+  check("только что опубликовано — «новое»", (await cardOf())?.isNew === true);
+  // Опубликовано 15 дней назад (часы не двигаем: подпись MAX живёт сутки)
+  await ctx.store.saveListing({ ...(await ctx.store.getListing(id))!, publishedAt: clock - 15 * 86_400_000 });
+  check("через 15 дней — уже не «новое»", (await cardOf())?.isNew === false);
+
+  // Подпись номера: HMAC_SHA256(authDate=…\nphone=…\nuserId=…, токен бота), номер без «+»
+  const authDate = "1794595235";
+  const hash = createHmac("sha256", token).update(`authDate=${authDate}\nphone=79270000199\nuserId=${HN}`).digest("hex");
+  check("подпись MAX с id человека — номер подтверждён", checkContact({ phone: "+79270000199", authDate, hash }, token, HN).verified === true);
+  check("чужой id — не подтверждён", checkContact({ phone: "+79270000199", authDate, hash }, token, HN + 1).verified === false);
+
+  // Цифры админки: тестовые номера от 900 000 000 и удалённые не считаются
+  const before = (await call("/admin/stats", ADMIN)).json.users;
+  await ctx.store.saveUser({ id: 999_000_001, name: "Тест облака", phone: null, consentAt: null, createdAt: clock });
+  check("тестовый человек не попадает в «людей»", (await call("/admin/stats", ADMIN)).json.users === before);
+  check("в цифрах есть «ждут проверки»", typeof (await call("/admin/stats", ADMIN)).json.toReview === "number");
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

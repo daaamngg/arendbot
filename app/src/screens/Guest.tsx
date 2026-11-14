@@ -187,7 +187,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
                     {[c.locality, c.address].filter(Boolean).join(", ")} · {guestsUpTo(c.guests)}
                   </div>
                 </div>
-                <div className="shrink-0 pt-0.5 text-[13px]">{c.stars != null ? <Stars value={c.stars} count={c.reviews} /> : <span className="text-dim">новое</span>}</div>
+                <div className="shrink-0 pt-0.5 text-[13px]">{c.stars != null ? <Stars value={c.stars} count={c.reviews} /> : c.isNew ? <span className="text-dim">новое</span> : null}</div>
               </div>
             </button>
           </li>

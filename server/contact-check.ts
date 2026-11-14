@@ -18,7 +18,7 @@ const eq = (a: string, b: string) => {
   return x.length > 0 && x.length === y.length && timingSafeEqual(x, y);
 };
 
-export function checkContact(raw: unknown, botToken: string): ContactCheck {
+export function checkContact(raw: unknown, botToken: string, userId?: number): ContactCheck {
   const c = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const fields = Object.keys(c).map((k) => `${k}:${typeof c[k]}`);
   const hash = typeof c.hash === "string" ? c.hash.toLowerCase() : "";
@@ -39,7 +39,19 @@ export function checkContact(raw: unknown, botToken: string): ContactCheck {
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([k, v]) => `${k}=${str(v)}`)
     .join("\n");
+  // По документации MAX (dev.max.ru/docs/webapps/bridge): HMAC_SHA256 от «authDate=…\nphone=…\nuserId=…»
+  // (ключи по алфавиту, номер без «+»), ключ — сам токен бота. userId — из подписанных данных запуска
+  const plain = phone.replace(/^\+/, "");
+  const withUser: Record<string, string> =
+    userId != null
+      ? {
+          "max:authDate+phone+userId": `authDate=${authDate}\nphone=${plain}\nuserId=${userId}`,
+          "max:authDate+phone(+)+userId": `authDate=${authDate}\nphone=${phone}\nuserId=${userId}`,
+          "max:склейка": `${authDate}${plain}${userId}`,
+        }
+      : {};
   const texts: Record<string, string> = {
+    ...withUser,
     all,
     allSnake,
     "auth_date+phone": `auth_date=${authDate}\nphone=${phone}`,
@@ -51,9 +63,13 @@ export function checkContact(raw: unknown, botToken: string): ContactCheck {
     "sha256(token)": createHash("sha256").update(botToken).digest(),
     token: Buffer.from(botToken),
   };
+  const b64 = typeof c.hash === "string" ? c.hash : "";
   for (const [kn, key] of Object.entries(keys)) {
     for (const [tn, text] of Object.entries(texts)) {
-      if (eq(createHmac("sha256", key).update(text).digest("hex"), hash)) return { verified: true, scheme: `${kn}/${tn}`, fields };
+      const mac = createHmac("sha256", key).update(text).digest();
+      // Кодировка подписи в документации не указана: сверяем и hex, и base64
+      if (eq(mac.toString("hex"), hash) || (b64.length >= 40 && (mac.toString("base64") === b64 || mac.toString("base64url") === b64.replace(/=+$/, ""))))
+        return { verified: true, scheme: `${kn}/${tn}`, fields };
     }
   }
   return { verified: false, scheme: null, fields };

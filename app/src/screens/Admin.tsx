@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Flag, Home, Lock, Search, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { CalendarDays, ChevronRight, Flag, History, Home, Lock, Search, ShieldCheck, Trash2, UserCog, UserMinus, UserPlus, Users } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
 import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
@@ -13,15 +13,15 @@ import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
 type Section = "apps" | "bookings" | "complaints" | "review" | "listings" | "people" | "team" | "log";
 
 // Модератор видит только то, что нужно проверять. Главный — всё: брони, объявления, люди, команда, история
-const SECTIONS: { id: Section; title: string; owner?: boolean }[] = [
-  { id: "review", title: "Проверка" },
-  { id: "apps", title: "Заявки" },
-  { id: "complaints", title: "Жалобы" },
-  { id: "bookings", title: "Брони", owner: true },
-  { id: "listings", title: "Объявления", owner: true },
-  { id: "people", title: "Люди", owner: true },
-  { id: "team", title: "Команда", owner: true },
-  { id: "log", title: "История", owner: true },
+const SECTIONS: { id: Section; title: string; icon: typeof Flag; owner?: boolean }[] = [
+  { id: "review", title: "Проверка", icon: ShieldCheck },
+  { id: "apps", title: "Заявки", icon: UserPlus },
+  { id: "complaints", title: "Жалобы", icon: Flag },
+  { id: "bookings", title: "Брони", icon: CalendarDays, owner: true },
+  { id: "listings", title: "Объявления", icon: Home, owner: true },
+  { id: "people", title: "Люди", icon: Users, owner: true },
+  { id: "team", title: "Команда", icon: UserCog, owner: true },
+  { id: "log", title: "История", icon: History, owner: true },
 ];
 
 const when = (ms: number) => new Date(ms).toLocaleString("ru-RU", { timeZone: "Europe/Samara", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -48,19 +48,50 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
   return (
     <>
       <H1>{props.owner ? "Админ" : "Модератор"}</H1>
-      {stats && (
-        <p className="-mt-2 mb-3 text-[13px] text-dim">
-          В поиске <b className="text-ink tabular-nums">{stats.listings.active ?? 0}</b> · броней за неделю <b className="text-ink tabular-nums">{stats.bookingsWeek}</b> · людей <b className="text-ink tabular-nums">{stats.users}</b>
-        </p>
-      )}
-      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]" role="tablist">
-        {sections.map((s) => (
-          <button key={s.id} role="tab" aria-selected={section === s.id} className="chip shrink-0" aria-pressed={section === s.id} onClick={() => { setSection(s.id); setMsg(null); }}>
-            {s.title}
-            {s.id === "complaints" && stats?.openComplaints ? <span className="ml-1.5 rounded-full bg-bad px-1.5 text-[11px] font-bold text-white">{stats.openComplaints}</span> : null}
-            {s.id === "apps" && stats?.pendingHosts ? <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[11px] font-bold text-white">{stats.pendingHosts}</span> : null}
-          </button>
+      {/* Цифры площадки — три одинаковые плашки */}
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        {(
+          [
+            ["в поиске", stats?.listings.active ?? 0],
+            ["брони, 7 дн.", stats?.bookingsWeek ?? 0],
+            ["людей", stats?.users ?? 0],
+          ] as const
+        ).map(([label, n]) => (
+          <div key={label} className="card px-3 py-2.5">
+            <div className="text-[22px] leading-none font-bold text-ink tabular-nums">{stats ? n : "–"}</div>
+            <div className="mt-1 text-[12px] leading-tight text-dim">{label}</div>
+          </div>
         ))}
+      </div>
+      {/* Разделы — плитками, всё видно сразу, без прокрутки вбок. Цифра в углу — сколько ждёт решения */}
+      <div className={`mb-5 grid gap-2 ${sections.length > 4 ? "grid-cols-4" : "grid-cols-3"}`} role="tablist">
+        {sections.map((s) => {
+          const Icon = s.icon;
+          const on = section === s.id;
+          const count = s.id === "complaints" ? stats?.openComplaints : s.id === "apps" ? stats?.pendingHosts : s.id === "review" ? stats?.toReview : 0;
+          return (
+            <button
+              key={s.id}
+              role="tab"
+              aria-selected={on}
+              onClick={() => {
+                setSection(s.id);
+                setMsg(null);
+              }}
+              className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-1 pt-3 pb-2.5 text-[12px] font-semibold transition-colors ${
+                on ? "border-accent bg-accent text-white" : "border-line bg-surface text-ink active:bg-surface-2"
+              }`}
+            >
+              <Icon size={20} aria-hidden className={on ? "text-white" : "text-accent"} />
+              <span className="leading-none">{s.title}</span>
+              {count ? (
+                <span className={`absolute top-1.5 right-1.5 min-w-[18px] rounded-full px-1 text-[11px] leading-[18px] font-bold tabular-nums ${on ? "bg-white text-accent" : s.id === "complaints" ? "bg-bad text-white" : "bg-accent text-white"}`}>
+                  {count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
       {msg && <p className="mb-3 rounded-lg bg-accent-soft p-3 text-[14px] text-ink">{msg}</p>}
 

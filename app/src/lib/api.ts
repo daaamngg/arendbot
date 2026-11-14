@@ -232,6 +232,8 @@ export interface AdminStats {
   confirmedSum: number;
   openComplaints: number;
   pendingHosts: number;
+  /** объявления, которые ждут взгляда модератора */
+  toReview?: number;
 }
 
 export interface AuditRow {

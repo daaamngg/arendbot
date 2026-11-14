@@ -85,7 +85,12 @@ export interface Listing {
   createdAt: number;
   updatedAt: number;
   submittedAt?: number;
+  /** когда объявление впервые попало в поиск — от этого считаем «новое» */
+  publishedAt?: number;
 }
+
+/** Сколько дней после первой публикации объявление помечено «новое» (если ещё нет оценок) */
+export const NEW_DAYS = 14;
 
 export const CANCEL_OPTIONS: { days: number; title: string }[] = [
   { days: 0, title: "Бесплатно до заезда" },
@@ -298,6 +303,9 @@ export interface User {
 
 /** Карточка в поиске: без адреса и без данных хозяина */
 export interface ListingCard {
+  /** «новое»: опубликовано меньше NEW_DAYS дней назад и ещё нет оценок */
+  isNew: boolean;
+  publishedAt: number;
   id: string;
   type: PlaceType;
   title: string;
