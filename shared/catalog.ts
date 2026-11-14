@@ -1,4 +1,8 @@
 import { PLACE_TYPES, type Listing } from "./types.ts";
+import { rub } from "./dates.ts";
+
+/** Залог для показа: «3 000 ₽», «паспорт» или null, если залога нет */
+export const depositLabel = (l: Pick<Listing, "deposit" | "depositNote">) => (l.depositNote ? l.depositNote : l.deposit > 0 ? rub(l.deposit) : null);
 
 // Справочники анкеты: города области, районы, удобства. Площадка — Самара и Самарская область (ответ Сергея 10.11).
 

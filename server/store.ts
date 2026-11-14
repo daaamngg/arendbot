@@ -86,6 +86,9 @@ export interface Store {
   /** было ли событие за последние ttlMs (и отметить его) — от двойных приветствий */
   seenRecently(key: string, ttlMs: number): Promise<boolean>;
 
+  /** вся база одним списком — для ночной резервной копии */
+  dump(): Promise<unknown>;
+
   /** мелкие записи по ключу: входы в админку (login:…, code:…) и ключи устройств (sess:…). undefined — удалить */
   kvGet<T>(key: string): Promise<T | undefined>;
   kvSet(key: string, value: unknown): Promise<void>;
@@ -332,6 +335,9 @@ export function fileStore(path: string): Store {
       db.marks[key] = Date.now();
       flush();
       return false;
+    },
+    async dump() {
+      return JSON.parse(JSON.stringify(db));
     },
     async kvGet<T>(key: string) {
       return db.kv[key] as T | undefined;

@@ -1,4 +1,4 @@
-import type { BookingStatus, Listing, ListingCard, PublicListing } from "../../../shared/types.ts";
+import type { BookingStatus, Listing, ListingCard, PublicListing, SupportTicket } from "../../../shared/types.ts";
 import { initData } from "./max.ts";
 
 // Все запросы к серверу. Адрес API — VITE_API_URL (облако), в разработке — /api через прокси Vite.
@@ -107,6 +107,8 @@ export interface BookingView {
   cancelDays: number;
   canReview: boolean;
   deposit: number;
+  /** залог для показа: «3 000 ₽» или «паспорт» */
+  depositText: string | null;
   checkInTime: string | null;
   phone: string | null;
 }
@@ -246,6 +248,10 @@ export interface AdminStats {
   pendingHosts: number;
   /** объявления, которые ждут взгляда модератора */
   toReview?: number;
+  /** обращения в поддержку без ответа */
+  openTickets?: number;
+  /** последняя резервная копия базы */
+  backup?: { day: string; rows: number } | null;
 }
 
 export interface AuditRow {
@@ -276,6 +282,11 @@ export const api = {
   phone: (phone: string, contact?: unknown) => post<{ ok: true; verified: boolean }>("/phone", { phone, consent: true, ...(contact ? { contact } : {}) }),
   search: (q: SearchQuery) => post<{ cards: ListingCard[] }>("/search", q),
   listing: (id: string) => post<{ listing: PublicListing; own: boolean }>("/listing", { id }),
+  deleteMe: () => post<{ ok: true }>("/me/delete"),
+  supportSend: (text: string) => post<{ ticket: SupportTicket }>("/support/send", { text }),
+  supportMy: () => post<{ tickets: SupportTicket[] }>("/support/my"),
+  adminSupport: () => post<{ tickets: SupportTicket[] }>("/admin/support"),
+  adminSupportReply: (userId: number, id: string, text: string, close = false) => post<{ ticket: SupportTicket }>("/admin/support/reply", { userId, id, text, close }),
   disputeReview: (listingId: string, id: string, text: string) => post<{ ok: true }>("/host/review/dispute", { listingId, id, text }),
   adminReviews: () => post<{ reviews: AdminReviewRow[] }>("/admin/reviews"),
   adminReview: (listingId: string, id: string, keep: boolean) => post<{ ok: true }>("/admin/review", { listingId, id, keep }),
@@ -352,6 +363,7 @@ export function errorText(e: unknown): string {
     "already staff": "Этот человек уже в команде.",
     "last owner": "Нельзя убрать последнего главного.",
     owner: "Главного заблокировать нельзя.",
+    "too short": "Напишите чуть подробнее.",
     "owner blocked": "Хозяин заблокирован, сначала разблокируйте его во вкладке «Люди».",
     "bad phone": "Проверьте номер: +7 и 10 цифр.",
     network: "Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.",
@@ -363,7 +375,7 @@ export function errorText(e: unknown): string {
     "bad image": "Не получилось обработать фото. Попробуйте другое.",
     "active booking": "Сначала отмените бронь, потом её можно убрать из списка.",
     "too early": "Отметить можно в день заезда или позже.",
-    "has bookings": "По этому объявлению есть подтверждённые брони. Сначала отмените их, потом удалите объявление.",
+    "has bookings": "Есть подтверждённые брони. Сначала отмените их: гости на них рассчитывают.",
     "bad status": "Сейчас это сделать нельзя.",
     "bad code": "Код не подходит.",
     forbidden: "Это может сделать только главный.",

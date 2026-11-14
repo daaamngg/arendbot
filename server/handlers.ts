@@ -1,10 +1,10 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle, missingForSubmit } from "../shared/catalog.ts";
+import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle, missingForSubmit, depositLabel } from "../shared/catalog.ts";
 import { addDays, busyNights, checkRange, isDate, price, todaySamara } from "../shared/dates.ts";
 import { autoCheck, hostHints } from "../shared/auto-check.ts";
 import { reviewCheck } from "../shared/review-check.ts";
 import { checkContact } from "./contact-check.ts";
-import { hasContacts, maskContacts, suspicion, isRisky, safeName } from "../shared/trust.ts";
+import { hasContacts, maskContacts, suspicion, isRisky, safeName, cleanText } from "../shared/trust.ts";
 import {
   CANCEL_OPTIONS,
   COMPLAINT_REASONS,
@@ -21,6 +21,7 @@ import {
   type Photo,
   type PublicListing,
   type Review,
+  type SupportTicket,
   type User,
 } from "../shared/types.ts";
 import {
@@ -75,6 +76,8 @@ export interface Config {
 
 export interface Ctx {
   store: Store;
+  /** сохранить резервную копию (в облаке — закрытый бакет). Нет — копии не делаются */
+  saveBackup?: (name: string, json: string) => Promise<void>;
   max: MaxApi;
   config: Config;
   log: (s: string) => void;
@@ -92,7 +95,7 @@ const now = (ctx: Ctx) => (ctx.now ? ctx.now() : Date.now());
 
 // --- мелочи ----------------------------------------------------------------------
 
-const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const str = (v: unknown, max: number) => cleanText(v, max);
 const int = (v: unknown, min: number, max: number, def: number) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
@@ -431,15 +434,15 @@ const isLateCancel = (b: Booking, l: Listing | undefined, t: number) =>
   !!l && l.cancelDays > 0 && todaySamara(t) > addDays(b.checkIn, -l.cancelDays);
 
 /** Поля анкеты, после правки которых объявление снова идёт к модератору */
-const CONTENT_FIELDS = ["type", "locality", "district", "address", "flat", "rooms", "area", "floor", "guests", "beds", "description", "rules", "amenities", "photos"] as const;
+const CONTENT_FIELDS = ["type", "locality", "district", "address", "flat", "rooms", "area", "floor", "guests", "beds", "description", "rules", "amenities", "photos", "depositNote"] as const;
 
 /** Разбор анкеты хозяина: берём только известные поля и в разумных пределах */
 function applyForm(l: Listing, f: any) {
   if (PLACE_TYPES.some((t) => t.id === f?.type)) l.type = f.type;
-  if (typeof f?.locality === "string") l.locality = str(f.locality, 60);
-  if (typeof f?.district === "string") l.district = str(f.district, 60);
-  if (typeof f?.address === "string") l.address = str(f.address, 200);
-  if (typeof f?.flat === "string") l.flat = str(f.flat, 120);
+  if (typeof f?.locality === "string" && LOCALITIES.includes(f.locality)) l.locality = f.locality;
+  if (typeof f?.district === "string") l.district = (DISTRICTS[l.locality] ?? []).includes(f.district) ? f.district : "";
+  if (typeof f?.address === "string") l.address = cleanText(f.address, 200, true);
+  if (typeof f?.flat === "string") l.flat = cleanText(f.flat, 120, true);
   if (typeof f?.showPhone === "boolean") l.showPhone = f.showPhone;
   if (f?.rooms !== undefined) l.rooms = int(f.rooms, 1, 10, 1);
   if (f?.area !== undefined) l.area = intOrNull(f.area, 5, 1000);
@@ -450,6 +453,12 @@ function applyForm(l: Listing, f: any) {
   if (f?.priceWeekend !== undefined) l.priceWeekend = int(f.priceWeekend, 0, 500_000, 0);
   if (f?.minNights !== undefined) l.minNights = int(f.minNights, 1, 30, 1);
   if (f?.deposit !== undefined) l.deposit = int(f.deposit, 0, 500_000, 0);
+  // Залог словами («паспорт») — тогда без суммы. Пусто — убрать
+  if (typeof f?.depositNote === "string") {
+    const note = cleanText(f.depositNote, 40, true);
+    l.depositNote = note || undefined;
+    if (note) l.deposit = 0;
+  }
   if (TIME_RE.test(f?.checkIn ?? "")) l.checkIn = f.checkIn;
   if (TIME_RE.test(f?.checkOut ?? "")) l.checkOut = f.checkOut;
   if (f?.rules && typeof f.rules === "object") {
@@ -556,6 +565,7 @@ async function bookingView(ctx: Ctx, b: Booking, forOwner: boolean) {
     // Можно оценить: жил (подтверждено, выезд был) и ещё не оценивал
     canReview: !forOwner && confirmed && b.checkOut <= todaySamara(now(ctx)) && !b.reviewed,
     deposit: l?.deposit ?? 0,
+    depositText: l ? depositLabel(l) : null,
     checkInTime: l?.checkIn ?? null,
     phone: confirmed ? (forOwner ? b.guestPhone : (other?.phone ?? null)) : null,
   };
@@ -789,8 +799,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const status = await hostStatusOf(ctx, user);
       if (status === "approved" || status === "pending") return fail(409, "already applied");
       if (limited(`ha:${uid}`, 3)) return fail(429, "too many");
-      const name = str(body?.name, 80);
-      const city = str(body?.city, 60);
+      const name = cleanText(body?.name, 80, true);
+      const city = cleanText(body?.city, 60, true);
       if (name.length < 2 || !city) return fail(400, "incomplete");
       user.hostApp = {
         name,
@@ -872,6 +882,63 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const count = (await ctx.store.listComplaints({ listingId: l.id, open: true })).length;
       await notifyAdmins(ctx, complaintToAdmins(c, l, reason.title, count, appButton(ctx, "Открыть объявление", `l_${l.id}`)), `c-${c.id}`);
       return ok({ ok: true });
+    }
+
+    case "/me/delete": {
+      // «Удалить мои данные» (право человека по закону о персональных данных). Главного не удаляем — он управляет площадкой
+      if (await isOwner(ctx, uid)) return fail(400, "owner");
+      const today = todaySamara(t);
+      // Подтверждённые будущие брони — сначала отменить: и гость, и хозяин на них рассчитывают
+      const asGuest = await ctx.store.listBookings({ guestId: uid, status: ["confirmed"] });
+      const asOwner = await ctx.store.listBookings({ ownerId: uid, status: ["confirmed"] });
+      if ([...asGuest, ...asOwner].some((b) => b.checkOut > today)) return fail(409, "has bookings");
+      await wipeUser(ctx, user, false, "", t);
+      await audit(ctx, uid, "удалил свои данные", `MAX ${uid}`);
+      return ok({ ok: true });
+    }
+
+    case "/support/send": {
+      // Обращение в поддержку. Команде — в админку (раздел «Обращения»), не сообщением в MAX
+      const text = str(body?.text, 1000);
+      if (text.length < 5) return fail(400, "too short");
+      if (limited(`sup:${uid}`, 5)) return fail(429, "too many");
+      const ticket: SupportTicket = { id: `${t}${randomUUID().slice(0, 4)}`, userId: uid, name: user.name, phone: user.phone, text, createdAt: t };
+      await ctx.store.kvSet(`ticket:${uid}:${ticket.id}`, ticket);
+      return ok({ ticket });
+    }
+
+    case "/support/my": {
+      const list = await ctx.store.kvList<SupportTicket>(`ticket:${uid}:`);
+      return ok({ tickets: list.map(([, x]) => x).sort((a, b) => b.createdAt - a.createdAt).slice(0, 30) });
+    }
+
+    case "/admin/support": {
+      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      const list = (await ctx.store.kvList<SupportTicket>("ticket:")).map(([, x]) => x);
+      // Сначала без ответа (старые сверху), потом отвеченные
+      const open = list.filter((x) => !x.reply && !x.closed).sort((a, b) => a.createdAt - b.createdAt);
+      const done = list.filter((x) => x.reply || x.closed).sort((a, b) => b.createdAt - a.createdAt).slice(0, 30);
+      return ok({ tickets: [...open, ...done] });
+    }
+
+    case "/admin/support/reply": {
+      // Ответ команды. Человеку — сообщение от бота с ответом (иначе он не узнает, что ему ответили)
+      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      const key = `ticket:${Number(body?.userId)}:${str(body?.id, 24)}`;
+      const tk = await ctx.store.kvGet<SupportTicket>(key);
+      if (!tk) return fail(404, "not found");
+      const close = body?.close === true;
+      const reply = str(body?.text, 1000);
+      if (!close && reply.length < 2) return fail(400, "too short");
+      if (reply) {
+        tk.reply = reply;
+        tk.repliedAt = t;
+      }
+      if (close) tk.closed = true;
+      await ctx.store.kvSet(key, tk);
+      if (reply) await send(ctx, tk.userId, { text: `Ответ поддержки площадки:\n${reply}`, buttons: appButton(ctx, "Открыть приложение") });
+      await audit(ctx, uid, reply ? "ответил на обращение" : "закрыл обращение", `${tk.name ?? "без имени"} (${tk.userId})`);
+      return ok({ ticket: tk });
     }
 
     case "/host/review/dispute": {
@@ -1043,7 +1110,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       }
       // Снятое модератором хозяин правит, но в поиск оно вернётся только после повторной проверки (см. /host/submit)
       // Телефоны, ссылки и «пишите в WhatsApp» — главный путь мошенников мимо площадки. Не сохраняем
-      if (hasContacts(str(body?.form?.description, 3000)) || hasContacts(str(body?.form?.address, 200)) || hasContacts(str(body?.form?.flat, 120))) return fail(400, "contacts");
+      if (["description", "address", "flat", "depositNote"].some((k) => hasContacts(str(body?.form?.[k], 3000)))) return fail(400, "contacts");
       const before = JSON.stringify(CONTENT_FIELDS.map((k) => l![k]));
       applyForm(l, body?.form);
       const contentChanged = before !== JSON.stringify(CONTENT_FIELDS.map((k) => l![k]));
@@ -1300,16 +1367,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       if (!u || u.deletedAt) return fail(404, "not found");
       const block = body?.block === true || !!u.blocked;
       const note = str(body?.note, 300) || "Удалён администратором площадки.";
-      if (block && !u.blocked) await banUser(ctx, target, note);
-      for (const l of await ctx.store.listListings({ ownerId: target })) {
-        await dropBookings(ctx, l.id, t);
-        await ctx.store.purgeListing(l.id);
-      }
-      const today = todaySamara(t);
-      for (const b of await ctx.store.listBookings({ guestId: target, status: ["requested", "confirmed"] }))
-        if (b.status === "requested" || b.checkOut > today) await cancel(ctx, b, "guest");
-      await ctx.store.saveStaff((await ctx.store.getStaff()).filter((m) => m.id !== target));
-      await ctx.store.saveUser({ id: target, name: null, phone: block ? u.phone : null, consentAt: null, createdAt: u.createdAt, blocked: block, deletedAt: t });
+      await wipeUser(ctx, u, block, note, t);
       await audit(ctx, uid, block ? "заблокировал и удалил человека" : "удалил человека", `${u.name ?? "без имени"} (${target})`, block ? note : undefined);
       return ok({ ok: true });
     }
@@ -1444,6 +1502,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         confirmedSum: bookings.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + b.total, 0),
         openComplaints: complaints.length,
         pendingHosts: (await ctx.store.listHostApplicants("pending")).length,
+        openTickets: (await ctx.store.kvList<SupportTicket>("ticket:")).filter(([, x]) => !x.reply && !x.closed).length,
+        backup: (await ctx.store.kvGet<{ day: string; rows: number }>("backup:last")) ?? null,
         toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length + (await ctx.store.listReviewsToCheck()).length,
       });
     }
@@ -1537,6 +1597,25 @@ async function addReview(ctx: Ctx, b: Booking, stars: number, text: string): Pro
   return true;
 }
 
+/**
+ * Стереть человека: объявления насовсем, брони и запросы отменить, из команды убрать.
+ * block — оставить номер и отметку блокировки (узнать, если вернётся); иначе остаётся только id
+ */
+async function wipeUser(ctx: Ctx, u: User, block: boolean, note: string, t: number) {
+  if (block && !u.blocked) await banUser(ctx, u.id, note);
+  for (const l of await ctx.store.listListings({ ownerId: u.id })) {
+    await dropBookings(ctx, l.id, t);
+    await ctx.store.purgeListing(l.id);
+  }
+  const today = todaySamara(t);
+  for (const b of await ctx.store.listBookings({ guestId: u.id, status: ["requested", "confirmed"] }))
+    if (b.status === "requested" || b.checkOut > today) await cancel(ctx, b, "guest");
+  await ctx.store.saveStaff((await ctx.store.getStaff()).filter((m) => m.id !== u.id));
+  // Обращения в поддержку тоже стираем
+  for (const [k] of await ctx.store.kvList(`ticket:${u.id}:`)) await ctx.store.kvSet(k, undefined);
+  await ctx.store.saveUser({ id: u.id, name: null, phone: block ? u.phone : null, consentAt: null, createdAt: u.createdAt, blocked: block || !!u.blocked, deletedAt: t });
+}
+
 /** Брони объявления перед удалением: ждущие ответа — отклонить, будущие подтверждённые — отменить (гостю сообщение) */
 async function dropBookings(ctx: Ctx, listingId: string, t: number) {
   for (const b of await ctx.store.listBookings({ listingId, status: ["requested", "confirmed"] })) {
@@ -1598,7 +1677,7 @@ export async function handleWebhook(ctx: Ctx, secretHeader: string | undefined, 
 /** Фото из сообщения MAX: вложения type=image с payload.url и payload.token */
 function photosOf(msg: any): Photo[] {
   return (msg?.body?.attachments ?? [])
-    .filter((x: any) => x?.type === "image" && typeof x?.payload?.url === "string")
+    .filter((x: any) => x?.type === "image" && typeof x?.payload?.url === "string" && /^https:\/\//.test(x.payload.url))
     .map((x: any) => ({ url: String(x.payload.url), token: typeof x.payload.token === "string" ? x.payload.token : undefined }));
 }
 
@@ -1765,6 +1844,7 @@ export async function processUpdate(ctx: Ctx, update: any) {
 
 export async function sweep(ctx: Ctx) {
   const t = now(ctx);
+  await backupDaily(ctx, t).catch((e) => ctx.log(`копия: ${(e as Error).message}`));
   await wakeUnread(ctx, t);
   const tomorrow = addDays(todaySamara(t), 1);
   for (const b of await ctx.store.listBookings({ status: HOLDING })) {
@@ -1799,6 +1879,24 @@ export async function sweep(ctx: Ctx) {
       ctx.log(`sweep ${b.id}: ${(e as Error).message}`);
     }
   }
+}
+
+/**
+ * Резервная копия всей базы раз в сутки, после 3 ночи по Самаре, в закрытый бакет (хранится 30 дней).
+ * Отметку ставим после успешной записи: две копии за ночь безвредны (тот же файл перезапишется),
+ * а пропущенная из-за сбоя повторится через 5 минут
+ */
+async function backupDaily(ctx: Ctx, t: number) {
+  if (!ctx.saveBackup) return;
+  const hour = new Date(t + 4 * 3600_000).getUTCHours();
+  const day = todaySamara(t);
+  if (hour < 3) return;
+  const last = await ctx.store.kvGet<{ day: string }>("backup:last");
+  if (last?.day === day) return;
+  const data = await ctx.store.dump();
+  const json = JSON.stringify({ at: t, data });
+  await ctx.saveBackup(`backups/${day}.json`, json);
+  await ctx.store.kvSet("backup:last", { day, at: t, rows: Array.isArray(data) ? data.length : 0, bytes: json.length });
 }
 
 /** Время выезда по Самаре (дата выезда + «Выезд до» из объявления) */

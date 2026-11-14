@@ -1116,5 +1116,83 @@ await approveHost(HOST6);
   clock = saved;
 }
 
+// --- 14.11: залог словами, чистка текста, поддержка, «удалить мои данные», ночная копия ------------------
+{
+  const HD = 210;
+  await call("/phone", HD, { phone: "+79270000210", consent: true });
+  await approveHost(HD);
+  const base = { ...form, address: "ул. Залоговая, 5", description: "Уютная квартира, рядом метро и парк, всё есть" };
+  const sv = async (extra: object, id?: string) => (await call("/host/save", HD, { ...(id ? { id } : {}), form: { ...base, ...extra } })).json;
+  const r1 = await sv({ depositNote: "паспорт" });
+  const id = r1.listing.id as string;
+  check("залог словами сохранён, сумма обнулена", r1.listing.depositNote === "паспорт" && r1.listing.deposit === 0);
+  const r2 = await sv({ depositNote: "<script>alert(1)</script>паспорт" }, id);
+  check("из залога вырезан код", !/[<>]/.test(r2.listing.depositNote) && r2.listing.depositNote.includes("паспорт"));
+  check("в залог нельзя вписать номер", (await call("/host/save", HD, { id, form: { ...base, depositNote: "звоните 89271234567" } })).json.error === "contacts");
+  const r3 = await sv({ depositNote: "", deposit: 3000 }, id);
+  check("снова суммой — текст убран", r3.listing.deposit === 3000 && !r3.listing.depositNote);
+  const r4 = await sv({ address: "ул. Ленина,\u202e 1\u200b<b>", locality: "Город-Хакер", district: "<img>" }, id);
+  check("адрес без невидимых символов и кода", r4.listing.address === "ул. Ленина, 1b");
+  check("город только из списка, район только из района города", r4.listing.locality === "Самара" && r4.listing.district === "");
+
+  // Поддержка: человек пишет — команде в админку, не в MAX; ответ — человеку
+  const GS = 211;
+  await call("/phone", GS, { phone: "+79270000211", consent: true });
+  const sentBefore = sent.length;
+  const t1 = (await call("/support/send", GS, { text: "Хозяин не отвечает уже сутки, что делать?" })).json.ticket;
+  check("обращение создано", !!t1?.id);
+  check("команде в MAX ничего не пришло", sent.slice(sentBefore).every((m) => m.to !== ADMIN));
+  check("слишком короткое — нет", (await call("/support/send", GS, { text: "ау" })).status === 400);
+  check("модератор/главный видит обращение", (await call("/admin/support", ADMIN)).json.tickets.some((x: any) => x.id === t1.id));
+  check("обычный человек чужие обращения не видит", (await call("/admin/support", GS)).status === 403);
+  check("счётчик новых обращений", (await call("/admin/stats", ADMIN)).json.openTickets >= 1);
+  await call("/admin/support/reply", ADMIN, { userId: GS, id: t1.id, text: "Напишите хозяину ещё раз, если до вечера тишина — поможем найти другое жильё." });
+  check("ответ пришёл человеку от бота", lastTo(GS)?.text.startsWith("Ответ поддержки") === true);
+  check("ответ виден человеку в приложении", (await call("/support/my", GS)).json.tickets[0]?.reply?.includes("Напишите хозяину") === true);
+
+  // «Удалить мои данные»
+  check("главный себя удалить не может", (await call("/me/delete", ADMIN)).json.error === "owner");
+  const GDel = 212;
+  await call("/phone", GDel, { phone: "+79270000212", consent: true });
+  await call("/support/send", GDel, { text: "Проверка обращения перед удалением" });
+  const future = addDays(todaySamara(clock), 10);
+  await ctx.store.saveBooking({ id: "delbk1", listingId: id, ownerId: HD, guestId: GDel, guestName: "x", guestPhone: null, checkIn: future, checkOut: addDays(future, 1), guests: 1, nights: 1, total: 1, comment: "", status: "confirmed", createdAt: clock, decideBy: clock } as any);
+  check("с подтверждённой бронью удалить нельзя", (await call("/me/delete", GDel)).json.error === "has bookings");
+  await ctx.store.saveBooking({ ...(await ctx.store.getBooking("delbk1"))!, status: "cancelled" });
+  check("удалил свои данные", (await call("/me/delete", GDel)).status === 200);
+  const gone = await ctx.store.getUser(GDel);
+  check("номер и имя стёрты, обращения тоже", gone?.phone === null && gone?.name === null && (await ctx.store.kvList(`ticket:${GDel}:`)).length === 0);
+  check("не заблокирован — может вернуться", !gone?.blocked && (await call("/me", GDel)).status === 200);
+
+  // Ночная копия: после 3 ночи один раз в сутки, ошибка записи — повтор в следующий заход
+  const saves: string[] = [];
+  let failNext = true;
+  ctx.saveBackup = async (name: string, json: string) => {
+    if (failNext) {
+      failNext = false;
+      throw new Error("сеть");
+    }
+    saves.push(name);
+    JSON.parse(json);
+  };
+  const saved = clock;
+  const day = todaySamara(clock);
+  clock = Date.parse(`${day}T02:30:00+04:00`);
+  await sweep(ctx);
+  check("до 3 ночи копию не делаем", saves.length === 0);
+  clock = Date.parse(`${day}T03:05:00+04:00`);
+  await sweep(ctx);
+  check("сбой записи не ломает таймер, копия не отмечена", saves.length === 0 && !(await ctx.store.kvGet("backup:last")));
+  clock += 5 * 60_000;
+  await sweep(ctx);
+  check("следующий заход — копия сохранена", saves.length === 1 && saves[0] === `backups/${day}.json`);
+  clock += 5 * 60_000;
+  await sweep(ctx);
+  check("второй раз за сутки не повторяет", saves.length === 1);
+  check("в цифрах админки видно последнюю копию", (await call("/admin/stats", ADMIN)).json.backup?.day === day);
+  ctx.saveBackup = undefined;
+  clock = saved;
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

@@ -50,8 +50,9 @@ export function autoCheck({ listing: l, owner, all, complaints, phoneTwins = [],
   const mine = all.filter((x) => x.ownerId === l.ownerId && x.id !== l.id);
 
   // 1. Деньги или контакты мимо площадки
-  if (STOP_WORDS.test(l.description)) r.push("просят предоплату или писать мимо площадки");
-  if (hasContacts(l.description) || hasContacts(l.address) || hasContacts(l.flat ?? "")) r.push("контакты в тексте");
+  const texts = `${l.description}\n${l.depositNote ?? ""}`;
+  if (STOP_WORDS.test(texts)) r.push("просят предоплату или писать мимо площадки");
+  if (hasContacts(l.description) || hasContacts(l.address) || hasContacts(l.flat ?? "") || hasContacts(l.depositNote ?? "")) r.push("контакты в тексте");
 
   // 2. Чужое жильё: фото, текст или сама квартира уже есть у другого хозяина — типичный фейк
   const myPhotos = new Set(l.photos.map((p) => p.url));
@@ -73,7 +74,7 @@ export function autoCheck({ listing: l, owner, all, complaints, phoneTwins = [],
   if (mine.filter((x) => now - x.createdAt < 24 * 3600_000).length >= 10) r.push("больше 10 объявлений за сутки — похоже на спам");
 
   // 5. Мат
-  if (RUDE.test(l.description)) r.push("мат в описании");
+  if (RUDE.test(texts)) r.push("мат в описании");
 
   void owner;
   return [...new Set(r)];

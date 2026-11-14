@@ -7,16 +7,18 @@ import { ChatScreen } from "./screens/Chat.tsx";
 import { ListingScreen, SearchScreen, TripsScreen } from "./screens/Guest.tsx";
 import { HostCalendar, HostForm, HostHome } from "./screens/Host.tsx";
 import { Shell, Spinner, type Tab } from "./ui/ui.tsx";
-import { DialogHost, askText, tell } from "./ui/dialog.tsx";
+import { SupportScreen } from "./screens/Support.tsx";
+import { DialogHost, askText, dialogTookBack, tell } from "./ui/dialog.tsx";
 
 // Навигация: вкладка + стек вложенных экранов. «Назад» MAX снимает верхний экран
 type Screen =
   | { name: "listing"; id: string }
   | { name: "edit"; id: string | null }
   | { name: "calendar"; id: string }
-  | { name: "chat"; id?: string; listingId?: string };
+  | { name: "chat"; id?: string; listingId?: string }
+  | { name: "support" };
 
-const TITLES: Record<Screen["name"], string> = { listing: "Жильё", edit: "Объявление", calendar: "Календарь", chat: "Переписка" };
+const TITLES: Record<Screen["name"], string> = { listing: "Жильё", edit: "Объявление", calendar: "Календарь", chat: "Переписка", support: "Поддержка" };
 
 /** Параметр ссылки из бота: host, admin, chat_<id> (кнопка «Открыть переписку» в уведомлении) */
 const sp = startParam();
@@ -54,6 +56,8 @@ export default function App() {
       depth.current = 1;
     }
     const onPop = () => {
+      // Открыто окно («Удалить?» и т. п.) — «Назад» закрыл его, экран остаётся
+      if (dialogTookBack()) return;
       depth.current = Math.max(0, depth.current - 1);
       if (stackRef.current.length) {
         setStack((st) => st.slice(0, -1));
@@ -135,10 +139,12 @@ export default function App() {
     );
   } else if (top?.name === "calendar") {
     content = <HostCalendar id={top.id} />;
+  } else if (top?.name === "support") {
+    content = <SupportScreen />;
   } else if (tab === "search") {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   } else if (tab === "trips") {
-    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} />;
+    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} onSupport={() => push({ name: "support" })} isOwner={me.owner} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
   } else if (tab === "admin" && me.admin) {

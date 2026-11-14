@@ -543,8 +543,22 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           <Row label="Ночь в пт и сб, ₽">
             <input className="row-input font-semibold tabular-nums" inputMode="numeric" placeholder="0" aria-label="Цена в выходные" {...num("priceWeekend")} />
           </Row>
-          <Row label="Залог, ₽" hint="Возвращается при выезде">
-            <input className="row-input tabular-nums" inputMode="numeric" placeholder="без залога" aria-label="Залог" {...num("deposit")} />
+          {/* Залог — сумма («3000») или словами («паспорт»). Цифры — это рубли, текст — что оставляют в залог */}
+          <Row label="Залог" hint="Сумма или документ, вернут при выезде">
+            <input
+              className="row-input"
+              maxLength={40}
+              placeholder="без залога"
+              aria-label="Залог: сумма или документ"
+              value={form.depositNote ? form.depositNote : form.deposit ? String(form.deposit) : ""}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[<>`{}\\]/g, "");
+                const digits = v.replace(/[\s₽р.]/gi, "");
+                if (!v.trim()) set({ deposit: 0, depositNote: "" });
+                else if (/^\d{1,6}$/.test(digits)) set({ deposit: Number(digits), depositNote: "" });
+                else set({ deposit: 0, depositNote: v });
+              }}
+            />
           </Row>
           <Row label="Ночей минимум" tight>
             <Stepper label="ночей минимум" value={form.minNights ?? 1} min={1} max={30} onChange={(v) => set({ minNights: v })} />

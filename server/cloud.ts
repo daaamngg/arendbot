@@ -42,6 +42,7 @@ const getCtx = () =>
     const log = (s: string) => console.log(s.slice(0, 2000));
     return {
       store: docStore(table, { photoUrl: (name) => `${env.API_URL}/photos/${name}`, photos: { save: savePhotoToBucket } }),
+      saveBackup: env.BACKUP_BUCKET ? saveBackupToBucket : undefined,
       max: maxApi({ token: config.botToken, dryRun: false, log }),
       config,
       log,
@@ -65,6 +66,16 @@ async function savePhotoToBucket(name: string, jpeg: Buffer) {
   });
   if (!r.ok) throw new Error(`фото не сохранилось: ${r.status}`);
   return url;
+}
+
+/** Резервная копия — в отдельный ЗАКРЫТЫЙ бакет (фото лежат в открытом, туда копии нельзя) */
+async function saveBackupToBucket(name: string, json: string) {
+  const r = await fetch(`https://storage.yandexcloud.net/${env.BACKUP_BUCKET}/${name}`, {
+    method: "PUT",
+    headers: { "X-YaCloud-SubjectToken": iamToken, "Content-Type": "application/json" },
+    body: json,
+  });
+  if (!r.ok) throw new Error(`копия не сохранилась: ${r.status}`);
 }
 
 interface HttpEvent {

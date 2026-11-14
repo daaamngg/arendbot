@@ -17,6 +17,28 @@ interface Req {
 
 let push: ((r: Req) => void) | null = null;
 
+// «Назад» телефона (и кнопка «Назад» MAX) при открытом окне закрывает окно, а не экран под ним.
+// Открылось окно — кладём в историю свой шаг; «Назад» снимает его, App спрашивает dialogTookBack() и экран не трогает.
+// Закрыли кнопкой — свой шаг убираем сами (чуть позже: вдруг сразу откроется следующее окно, тогда шаг общий)
+let pushed = false;
+let skipPop = 0;
+let backTimer: ReturnType<typeof setTimeout> | undefined;
+let cancelTop: (() => void) | null = null;
+
+/** Вызывает App в начале обработки «Назад»: true — это было про окно, экран не менять */
+export function dialogTookBack(): boolean {
+  if (skipPop > 0) {
+    skipPop--;
+    return true;
+  }
+  if (pushed && cancelTop) {
+    pushed = false;
+    cancelTop();
+    return true;
+  }
+  return false;
+}
+
 const open = (r: Omit<Req, "resolve">) =>
   new Promise<boolean | string | null>((resolve) => {
     if (push) push({ ...r, resolve });
@@ -44,17 +66,36 @@ export function DialogHost() {
     };
   }, []);
   const cur = queue[0];
+  const close = (v: boolean | string | null, fromBack = false) => {
+    if (!cur) return;
+    cur.resolve(v);
+    setQueue((q) => q.slice(1));
+    if (!fromBack && pushed) {
+      backTimer = setTimeout(() => {
+        if (pushed && !cancelTop) {
+          pushed = false;
+          skipPop++;
+          history.back();
+        }
+      }, 80);
+    }
+  };
   useEffect(() => {
     if (cur?.input) {
       setValue(cur.input.value);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
+    if (cur) {
+      clearTimeout(backTimer);
+      if (!pushed) {
+        history.pushState({ dialog: 1 }, "");
+        pushed = true;
+      }
+      cancelTop = () => close(cur.input ? null : false, true);
+    } else cancelTop = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur]);
   if (!cur) return null;
-  const close = (v: boolean | string | null) => {
-    cur.resolve(v);
-    setQueue((q) => q.slice(1));
-  };
   const okDisabled = !!cur.input && !value.trim();
   // «Заблокировать и удалить» в половину ширины не влезает — тогда кнопки во всю ширину, одна под другой
   const stacked = cur.cancel === null || (cur.ok ?? "").length > 12 || (cur.cancel ?? "").length > 12;

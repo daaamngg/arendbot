@@ -121,6 +121,30 @@ export async function ydbTable(connectionString: string): Promise<DocTable> {
     async del(kind, id) {
       await withSession((s) => s.executeQuery(`DECLARE $k AS Utf8; DECLARE $id AS Utf8; DELETE FROM ${TABLE} WHERE kind = $k AND id = $id;`, { $k: utf8(kind), $id: utf8(id) }));
     },
+    async dump() {
+      // Раз в сутки для резервной копии: виды, потом каждый вид страницами по 1000 строк
+      const kinds = text((await withSession((s) => s.executeQuery(`SELECT DISTINCT kind FROM ${TABLE};`, {}))).resultSets?.[0]);
+      const out: DocRow[] = [];
+      for (const kind of kinds) {
+        let after = "";
+        for (;;) {
+          const r = await withSession((s) =>
+            s.executeQuery(`DECLARE $k AS Utf8; DECLARE $a AS Utf8; SELECT id, g1, g2, g3, g4, data FROM ${TABLE} WHERE kind = $k AND id > $a ORDER BY id LIMIT ${PAGE};`, {
+              $k: utf8(kind),
+              $a: utf8(after),
+            }),
+          );
+          const rows = r.resultSets?.[0]?.rows ?? [];
+          for (const row of rows) {
+            const v = (i: number) => row.items?.[i]?.textValue ?? undefined;
+            out.push({ kind, id: v(0) ?? "", g1: v(1), g2: v(2), g3: v(3), g4: v(4), data: JSON.parse(v(5) ?? "null") });
+          }
+          if (rows.length < PAGE) break;
+          after = rows[rows.length - 1].items?.[0]?.textValue ?? "";
+        }
+      }
+      return out;
+    },
     async all<T>(kind: string) {
       const rows = await plain.pages((after) => [
         `DECLARE $k AS Utf8; DECLARE $a AS Utf8; SELECT id, data FROM ${TABLE} WHERE kind = $k AND id > $a ORDER BY id LIMIT ${PAGE};`,

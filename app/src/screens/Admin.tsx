@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, ChevronRight, Flag, History, Home, Lock, Search, ShieldCheck, Trash2, UserCog, UserMinus, UserPlus, Users } from "lucide-react";
+import { CalendarDays, ChevronRight, Flag, History, Home, Lock, Search, ShieldCheck, Trash2, UserCog, UserMinus, UserPlus, Users, LifeBuoy } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
-import type { Listing } from "../../../shared/types.ts";
+import type { Listing, SupportTicket } from "../../../shared/types.ts";
 import { api, errorText, type AdminBookingRow, type AdminReviewRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
@@ -10,13 +10,14 @@ import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
 // Админка площадки. Модераторы проверяют объявления и жалобы, смотрят людей и журнал.
 // Главный (Сергей) ещё и собирает команду: назначает и снимает модераторов.
 
-type Section = "apps" | "bookings" | "complaints" | "review" | "listings" | "people" | "team" | "log";
+type Section = "apps" | "bookings" | "complaints" | "review" | "support" | "listings" | "people" | "team" | "log";
 
 // Модератор видит только то, что нужно проверять. Главный — всё: брони, объявления, люди, команда, история
 const SECTIONS: { id: Section; title: string; icon: typeof Flag; owner?: boolean }[] = [
   { id: "review", title: "Проверка", icon: ShieldCheck },
   { id: "apps", title: "Заявки", icon: UserPlus },
   { id: "complaints", title: "Жалобы", icon: Flag },
+  { id: "support", title: "Обращения", icon: LifeBuoy },
   { id: "bookings", title: "Брони", icon: CalendarDays, owner: true },
   { id: "listings", title: "Объявления", icon: Home, owner: true },
   { id: "people", title: "Люди", icon: Users, owner: true },
@@ -77,11 +78,11 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
         ))}
       </div>
       {/* Разделы — плитками, всё видно сразу, без прокрутки вбок. Цифра в углу — сколько ждёт решения */}
-      <div className={`mb-5 grid gap-2 ${sections.length > 4 ? "grid-cols-4" : "grid-cols-3"}`} role="tablist">
+      <div className={`mb-5 grid gap-2 ${sections.length === 4 ? "grid-cols-4" : "grid-cols-3"}`} role="tablist">
         {sections.map((s) => {
           const Icon = s.icon;
           const on = section === s.id;
-          const count = s.id === "complaints" ? stats?.openComplaints : s.id === "apps" ? stats?.pendingHosts : s.id === "review" ? stats?.toReview : 0;
+          const count = s.id === "complaints" ? stats?.openComplaints : s.id === "apps" ? stats?.pendingHosts : s.id === "review" ? stats?.toReview : s.id === "support" ? stats?.openTickets : 0;
           return (
             <button
               key={s.id}
@@ -91,7 +92,7 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
                 setSection(s.id);
                 setMsg(null);
               }}
-              className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-1 pt-3 pb-2.5 text-[11px] font-semibold tracking-[-0.01em] transition-colors ${
+              className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-1 pt-3 pb-2.5 text-[12px] font-semibold transition-colors ${
                 on ? "border-accent bg-accent text-white" : "border-line bg-surface text-ink active:bg-surface-2"
               }`}
             >
@@ -114,6 +115,7 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
       {section === "review" && <Review act={act} />}
       {section === "listings" && <AllListings act={act} />}
       {section === "people" && <People act={act} />}
+      {section === "support" && <Support act={act} />}
       {section === "team" && <Team act={act} owner={props.owner} />}
       {section === "log" && <Log />}
     </>
@@ -489,6 +491,59 @@ function People(props: { act: Act }) {
         </ul>
       )}
     </>
+  );
+}
+
+// --- Обращения в поддержку: ответ уходит человеку в приложение и сообщением от бота ---------------
+
+function Support(props: { act: Act }) {
+  const [list, setList] = useCached<SupportTicket[]>("support");
+  const load = () => api.adminSupport().then((r) => setList(r.tickets), () => setList((x) => x ?? []));
+  useLive(load, 15000);
+  if (!list) return <Spinner />;
+  if (!list.length) return <p className="text-dim">Обращений нет. Люди пишут из вкладки «Моё», внизу «Написать в поддержку».</p>;
+  return (
+    <ul className="space-y-3">
+      {list.map((t) => {
+        const open = !t.reply && !t.closed;
+        return (
+          <li key={t.id} className="card px-4 py-3.5 text-[14px]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-semibold text-ink">{t.name ?? "Без имени"}</div>
+                <div className="text-[13px] text-dim">
+                  {t.phone ? phoneText(t.phone) : "номер не оставлял"} · {when(t.createdAt)}
+                </div>
+              </div>
+              {open && <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[12px] font-semibold text-white">новое</span>}
+            </div>
+            <p className="mt-2 whitespace-pre-line text-ink">{t.text}</p>
+            {t.reply && (
+              <div className="mt-3 rounded-lg bg-accent-soft px-3 py-2.5">
+                <div className="text-[12px] font-semibold text-accent">Ваш ответ</div>
+                <p className="mt-0.5 whitespace-pre-line text-ink">{t.reply}</p>
+              </div>
+            )}
+            {open && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent"
+                  onClick={async () => {
+                    const text = await askText("Ответ", "", { text: "Человек увидит ответ в приложении и получит сообщение от бота.", ok: "Отправить", placeholder: "Текст ответа" });
+                    if (text) props.act(() => api.adminSupportReply(t.userId, t.id, text), "Ответ отправлен.", load);
+                  }}
+                >
+                  Ответить
+                </button>
+                <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-dim" onClick={() => props.act(() => api.adminSupportReply(t.userId, t.id, "", true), "Обращение закрыто.", load)}>
+                  Закрыть без ответа
+                </button>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

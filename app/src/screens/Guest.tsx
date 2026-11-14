@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, Share, SlidersHorizontal, Star, Users } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
+import { depositLabel } from "../../../shared/catalog.ts";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { CANCEL_OPTIONS, COMPLAINT_REASONS, type ListingCard, type PublicListing } from "../../../shared/types.ts";
 import { api, errorText, type BookingView, type Me, type SearchQuery } from "../lib/api.ts";
@@ -409,7 +410,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
               Заезд с {l.checkIn}, выезд до {l.checkOut}
             </li>
             <li>Бронь {nightsFrom(l.minNights)}</li>
-            <li>{l.deposit > 0 ? `Залог ${rub(l.deposit)} при заселении, вернут при выезде` : "Без залога"}</li>
+            <li>{depositLabel(l) ? `Залог при заселении: ${depositLabel(l)}, вернут при выезде` : "Без залога"}</li>
             <li>{cancelText(l.cancelDays)}</li>
             <li className="text-dim">Оплата хозяину при заселении</li>
           </ul>
@@ -653,7 +654,7 @@ type MineTab = "trips" | "chats" | "favs";
  * «Моё»: три вкладки вместо длинной ленты — брони, сообщения, избранное. Брони делятся на предстоящие
  * и прошлые; у каждой маленькое фото слева, детали подтверждённой — в одной плашке
  */
-export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number }) {
+export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number; onSupport: () => void; isOwner?: boolean }) {
   const [tab, setTab] = useState<MineTab>(props.unread ? "chats" : "trips");
   const [list, setList] = useState<BookingView[] | null>(null);
   const [favs, setFavs] = useState<ListingCard[]>([]);
@@ -732,7 +733,7 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
           <div>{b.address}</div>
           <div className="text-dim">
             Заезд с {b.checkInTime}
-            {b.deposit ? ` · залог ${rub(b.deposit)}` : ""}
+            {b.depositText ? ` · залог: ${b.depositText}` : ""}
           </div>
           {b.phone && (
             <a className="inline-flex items-center gap-1.5 pt-1 font-semibold text-accent" href={`tel:${b.phone}`}>
@@ -821,6 +822,36 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
             ))}
           </div>
         ))}
+
+      {/* Внизу «Моего» — тихие служебные строки: написать в поддержку и удалить свои данные */}
+      <div className="mt-8 mb-2 divide-y divide-line border-t border-line text-[15px]">
+        <button className="flex w-full items-center justify-between py-3.5 text-left text-ink" onClick={props.onSupport}>
+          Написать в поддержку
+          <ChevronDown size={18} className="-rotate-90 text-dim" aria-hidden />
+        </button>
+        {!props.isOwner && (
+          <button
+            className="flex w-full items-center justify-between py-3.5 text-left text-bad"
+            onClick={async () => {
+              const ok = await ask("Удалить ваши данные?", {
+                text: "Сотрутся номер, имя, ваши объявления, запросы на бронь и обращения. Вернуть будет нельзя. Подтверждённые брони сначала отмените.",
+                ok: "Удалить",
+                danger: true,
+              });
+              if (!ok) return;
+              try {
+                await api.deleteMe();
+                await tell("Данные удалены", "Если захотите вернуться, просто откройте бота снова.");
+                location.reload();
+              } catch (e) {
+                tell("Не получилось", errorText(e));
+              }
+            }}
+          >
+            Удалить мои данные
+          </button>
+        )}
+      </div>
     </>
   );
 }

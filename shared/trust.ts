@@ -86,4 +86,16 @@ export const isRisky = (s: string) => RISKY.test(s);
 
 /** Имя «под площадку» (Поддержка, Администрация, Служба безопасности) — так мошенник выдаёт себя за нас */
 const FAKE_OFFICIAL = /поддержк|админ|модератор|служб[аыу]|безопасност|support|admin|посуточн|\bбот\b|оператор/i;
+/**
+ * Любой текст от людей: убираем управляющие символы, невидимые и «переворачивающие» строку символы
+ * (ими подделывают ссылки и имена). Однострочные поля — ещё и без < > ` { } \, чтобы там не мог оказаться код.
+ * На экране текст и так показывается как текст (React экранирует), это вторая линия защиты
+ */
+export function cleanText(v: unknown, max: number, oneLine = false): string {
+  if (typeof v !== "string") return "";
+  let s = v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, "");
+  if (oneLine) s = s.replace(/[\r\n\t]+/g, " ").replace(/[<>`{}\\]/g, "").replace(/ {2,}/g, " ");
+  return s.trim().slice(0, max);
+}
+
 export const safeName = (name: string | null) => (name && (FAKE_OFFICIAL.test(name) || hasContacts(name)) ? null : name);

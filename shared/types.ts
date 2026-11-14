@@ -60,6 +60,8 @@ export interface Listing {
   minNights: number;
   /** залог при заселении, ₽ (0 — без залога) */
   deposit: number;
+  /** залог не деньгами, а словами: «паспорт», «документ» (тогда deposit = 0) */
+  depositNote?: string;
   checkIn: string;
   checkOut: string;
   rules: HouseRules;
@@ -87,6 +89,19 @@ export interface Listing {
   submittedAt?: number;
   /** когда объявление впервые попало в поиск — от этого считаем «новое» */
   publishedAt?: number;
+}
+
+/** Обращение в поддержку: человек пишет из приложения, команда отвечает в админке (не в чат MAX) */
+export interface SupportTicket {
+  id: string;
+  userId: number;
+  name: string | null;
+  phone: string | null;
+  text: string;
+  createdAt: number;
+  reply?: string;
+  repliedAt?: number;
+  closed?: boolean;
 }
 
 /** Сколько дней после первой публикации объявление помечено «новое» (если ещё нет оценок) */

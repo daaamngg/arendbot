@@ -40,6 +40,8 @@ export interface DocTx {
 
 export interface DocTable extends DocTx {
   del(kind: string, id: string): Promise<void>;
+  /** все строки таблицы как есть (с полями поиска) — для резервной копии и восстановления */
+  dump(): Promise<DocRow[]>;
   /** все документы вида — только для редких дел (админка, подсчёт) */
   all<T>(kind: string): Promise<T[]>;
   /** документы вида с id, начинающимся на prefix, по порядку id */
@@ -90,6 +92,7 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
     getListing: (id) => db.get<Listing>("listing", id),
     saveListing: (l) => db.put(listingRow(l)),
     purgeListing: (id) => db.del("listing", id),
+    dump: () => db.dump(),
     async bumpStat(id, field, delta) {
       // В транзакции: два просмотра в одну секунду из разных копий сервера не потеряются
       await db.tx(async (t) => {
@@ -285,6 +288,9 @@ export function memoryTable(): DocTable {
     },
     async del(kind, id) {
       rows.delete(key(kind, id));
+    },
+    async dump() {
+      return [...rows.values()].map((r) => clone(r));
     },
     async all<T>(kind: string) {
       return [...rows.values()].filter((r) => r.kind === kind).map((r) => clone(r.data as T));

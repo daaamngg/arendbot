@@ -1,5 +1,5 @@
 import { isRisky } from "../shared/trust.ts";
-import { fullAddress, listingTitle } from "../shared/catalog.ts";
+import { fullAddress, listingTitle, depositLabel } from "../shared/catalog.ts";
 import { guestsText, nightsFrom, nightsText, rangeText, rub } from "../shared/dates.ts";
 import { PLACE_TYPES, type Booking, type Complaint, type Listing, type User } from "../shared/types.ts";
 import type { Button, OutMessage } from "./max-api.ts";
@@ -66,7 +66,7 @@ export function confirmedToGuest(b: Booking, l: Listing, ownerPhone: string | nu
       `Адрес: ${fullAddress(l)}`,
       `Хозяин: ${phoneText(ownerPhone)}`,
       `Заезд с ${l.checkIn}, выезд до ${l.checkOut}`,
-      `К оплате хозяину: ${rub(b.total)}${l.deposit ? `, плюс залог ${rub(l.deposit)} (вернут при выезде)` : ""}`,
+      `К оплате хозяину: ${rub(b.total)}${depositLabel(l) ? `, плюс залог: ${depositLabel(l)} (вернут при выезде)` : ""}`,
       "",
       "Позвоните хозяину, чтобы договориться о заселении.",
     ].join("\n"),
@@ -220,7 +220,7 @@ function moderatorBody(l: Listing, ownerPhone: string | null): OutMessage {
       `${listingTitle(l)} (${type.toLowerCase()})`,
       `${where(l)}, ${l.address}${l.flat ? `, ${l.flat}` : ""}`,
       `${guestsText(l.guests)}, спальных мест ${l.beds}${l.floor ? `, этаж ${l.floor}` : ""}`,
-      `Будни ${rub(l.priceWeekday)}, выходные ${rub(l.priceWeekend)}, ${nightsFrom(l.minNights)}${l.deposit ? `, залог ${rub(l.deposit)}` : ""}`,
+      `Будни ${rub(l.priceWeekday)}, выходные ${rub(l.priceWeekend)}, ${nightsFrom(l.minNights)}${depositLabel(l) ? `, залог: ${depositLabel(l)}` : ""}`,
       `Правила: ${rules.length ? rules.join(", ") : "без животных, детей, курения и вечеринок"}`,
       `Хозяин: ${phoneText(ownerPhone)}`,
       "",
