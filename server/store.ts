@@ -37,6 +37,8 @@ export interface Store {
 
   saveReview(r: Review): Promise<void>;
   listReviews(listingId: string): Promise<Review[]>;
+  /** придержанные смотрителем и оспоренные хозяевами, по которым модератор ещё не решил */
+  listReviewsToCheck(): Promise<Review[]>;
   saveComplaint(c: Complaint): Promise<void>;
   listComplaints(q?: { open?: boolean; listingId?: string }): Promise<Complaint[]>;
 
@@ -206,6 +208,11 @@ export function fileStore(path: string): Store {
       return Object.values(db.reviews)
         .filter((r) => r.listingId === listingId)
         .sort((a, b) => b.createdAt - a.createdAt);
+    },
+    async listReviewsToCheck() {
+      return Object.values(db.reviews)
+        .filter((r) => !r.checked && !r.removed && (r.held?.length || r.disputed))
+        .sort((a, b) => a.createdAt - b.createdAt);
     },
     async saveComplaint(c) {
       db.complaints[c.id] = c;

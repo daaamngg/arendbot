@@ -224,6 +224,18 @@ export interface StaffRow {
   addedAt: number;
 }
 
+export interface AdminReviewRow {
+  id: string;
+  listingId: string;
+  title: string;
+  guestName: string | null;
+  stars: number;
+  text: string;
+  createdAt: number;
+  held?: string[];
+  disputed?: string;
+}
+
 export interface AdminStats {
   users: number;
   listings: Record<string, number>;
@@ -264,6 +276,9 @@ export const api = {
   phone: (phone: string, contact?: unknown) => post<{ ok: true; verified: boolean }>("/phone", { phone, consent: true, ...(contact ? { contact } : {}) }),
   search: (q: SearchQuery) => post<{ cards: ListingCard[] }>("/search", q),
   listing: (id: string) => post<{ listing: PublicListing; own: boolean }>("/listing", { id }),
+  disputeReview: (listingId: string, id: string, text: string) => post<{ ok: true }>("/host/review/dispute", { listingId, id, text }),
+  adminReviews: () => post<{ reviews: AdminReviewRow[] }>("/admin/reviews"),
+  adminReview: (listingId: string, id: string, keep: boolean) => post<{ ok: true }>("/admin/review", { listingId, id, keep }),
   quote: (id: string, checkIn: string, checkOut: string) => post<{ nights?: number; total?: number; problem?: string }>("/quote", { id, checkIn, checkOut }),
   // key — метка попытки: если ответ потерялся и запрос ушёл повторно, сервер вернёт ту же бронь
   book: (p: { id: string; checkIn: string; checkOut: string; guests: number; comment: string; key: string }) => post<{ booking: BookingView }>("/book", p, { timeout: 20_000 }),

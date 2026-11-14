@@ -143,6 +143,10 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
     },
 
     saveReview: (r) => db.put({ kind: "review", id: r.id, g1: r.listingId, data: r }),
+    async listReviewsToCheck() {
+      // Редкое дело (раздел «Проверка» в админке): все отзывы и фильтр
+      return (await db.all<Review>("review")).filter((r) => !r.checked && !r.removed && (r.held?.length || r.disputed)).sort((a, b) => a.createdAt - b.createdAt);
+    },
     async listReviews(listingId) {
       return (await db.find<Review>("review", "g1", listingId)).sort(byDesc((r) => r.createdAt));
     },

@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { AMENITIES, DISTRICTS, LOCALITIES, MAX_PHOTOS, fullAddress, listingTitle, missingForSubmit } from "../shared/catalog.ts";
 import { addDays, busyNights, checkRange, isDate, price, todaySamara } from "../shared/dates.ts";
 import { autoCheck, hostHints } from "../shared/auto-check.ts";
+import { reviewCheck } from "../shared/review-check.ts";
 import { checkContact } from "./contact-check.ts";
 import { hasContacts, maskContacts, suspicion, isRisky, safeName } from "../shared/trust.ts";
 import {
@@ -299,7 +300,10 @@ function publicListing(l: Listing, bookings: Booking[], reviews: Review[], favor
     busy,
     stars: starsOf(l),
     // Отзывы без id гостя — только имя, как в MAX
-    reviewList: reviews.slice(0, 20).map((r) => ({ id: r.id, guestName: r.guestName, stars: r.stars, text: r.text, createdAt: r.createdAt })),
+    reviewList: reviews
+      .filter((r) => !r.held?.length && !r.removed)
+      .slice(0, 20)
+      .map((r) => ({ id: r.id, guestName: r.guestName, stars: r.stars, text: r.text, createdAt: r.createdAt, ...(r.disputed && !r.checked ? { disputed: true } : {}) })),
     favorite,
     // Номер подставляет маршрут /listing, если хозяин разрешил; по умолчанию его нет
     hostPhone: null,
@@ -870,6 +874,58 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       return ok({ ok: true });
     }
 
+    case "/host/review/dispute": {
+      // Хозяин не согласен с оценкой: объясняет почему, модератор смотрит бронь и переписку
+      const l = await ownListing(body?.listingId);
+      if (!l) return fail(404, "not found");
+      const r = (await ctx.store.listReviews(l.id)).find((x) => x.id === str(body?.id, 16));
+      if (!r || r.removed || r.held?.length) return fail(404, "not found");
+      if (r.disputed) return fail(409, "already disputed");
+      if (limited(`rd:${uid}`, 10)) return fail(429, "too many");
+      const why = str(body?.text, 500);
+      if (why.length < 10) return fail(400, "too short");
+      r.disputed = why;
+      r.checked = false;
+      await ctx.store.saveReview(r);
+      await notifyAdmins(ctx, { text: `Хозяин оспаривает отзыв ${"★".repeat(r.stars)} по «${listingTitle(l)}», ${l.locality}\n«${why}»`, buttons: appButton(ctx, "Открыть админку", "admin") });
+      return ok({ ok: true });
+    }
+
+    case "/admin/reviews": {
+      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      const list = await ctx.store.listReviewsToCheck();
+      const rows = await Promise.all(
+        list.slice(0, 50).map(async (r) => {
+          const l = await ctx.store.getListing(r.listingId);
+          return { ...r, title: l ? `${listingTitle(l)}, ${l.locality}` : "объявление удалено" };
+        }),
+      );
+      return ok({ reviews: rows });
+    }
+
+    case "/admin/review": {
+      // keep — засчитать придержанный / оставить оспоренный; иначе убрать
+      if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
+      const l = await ctx.store.getListing(str(body?.listingId, 16));
+      const r = l && (await ctx.store.listReviews(l.id)).find((x) => x.id === str(body?.id, 16));
+      if (!l || !r || r.checked || r.removed) return fail(404, "not found");
+      const keep = body?.keep === true;
+      const wasCounted = !r.held?.length;
+      if (keep && !wasCounted) l.rating = { sum: (l.rating?.sum ?? 0) + r.stars, count: (l.rating?.count ?? 0) + 1 };
+      if (!keep && wasCounted) {
+        const count = Math.max(0, (l.rating?.count ?? 0) - 1);
+        l.rating = count ? { sum: Math.max(0, (l.rating?.sum ?? 0) - r.stars), count } : undefined;
+      }
+      r.held = keep ? undefined : r.held;
+      r.removed = !keep;
+      r.checked = true;
+      await ctx.store.saveReview(r);
+      await ctx.store.saveListing(l);
+      await audit(ctx, uid, keep ? (wasCounted ? "оставил оспоренный отзыв" : "засчитал отзыв") : "убрал отзыв", `${listingTitle(l)} (${l.id}), ${r.stars}★`);
+      if (r.disputed) await send(ctx, l.ownerId, { text: keep ? `Модератор посмотрел отзыв, который вы оспорили по «${listingTitle(l)}», и оставил его.` : `Отзыв, который вы оспорили по «${listingTitle(l)}», убран.` });
+      return ok({ ok: true });
+    }
+
     case "/quote": {
       const l = await ctx.store.getListing(str(body?.id, 16));
       if (!l || l.status !== "active") return fail(404, "not found");
@@ -1388,7 +1444,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         confirmedSum: bookings.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + b.total, 0),
         openComplaints: complaints.length,
         pendingHosts: (await ctx.store.listHostApplicants("pending")).length,
-        toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length,
+        toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length + (await ctx.store.listReviewsToCheck()).length,
       });
     }
 
@@ -1456,10 +1512,26 @@ async function addReview(ctx: Ctx, b: Booking, stars: number, text: string): Pro
   if (!l) return "not found";
   b.reviewed = true;
   await ctx.store.saveBooking(b);
-  const guest = await ctx.store.getUser(b.guestId);
+  const t = now(ctx);
+  const [guest, owner, listingReviews, guestBookings] = await Promise.all([
+    ctx.store.getUser(b.guestId),
+    ctx.store.getUser(l.ownerId),
+    ctx.store.listReviews(l.id),
+    ctx.store.listBookings({ guestId: b.guestId }),
+  ]);
   // Текст отзыва — тоже без контактов и ссылок
   const clean = hasContacts(text) ? "" : text;
-  await ctx.store.saveReview({ id: randomUUID().slice(0, 8), listingId: l.id, bookingId: b.id, guestId: b.guestId, guestName: guest?.name ?? null, stars, text: clean, createdAt: now(ctx) });
+  const guestTwins = guest?.phone ? (await ctx.store.listUsersByPhone(guest.phone)).filter((u) => u.id !== guest.id) : [];
+  // Сколько ДРУГИХ объявлений этого хозяина гость уже оценил (кольцо накрутки)
+  const sameOwnerReviewed = new Set(guestBookings.filter((x) => x.reviewed && x.ownerId === l.ownerId && x.listingId !== l.id).map((x) => x.listingId)).size;
+  const held = reviewCheck({ stars, text: clean, guest, owner, guestTwins, sameOwnerReviewed, listingReviews: listingReviews.filter((x) => !x.removed), now: t });
+  const review: Review = { id: randomUUID().slice(0, 8), listingId: l.id, bookingId: b.id, guestId: b.guestId, guestName: guest?.name ?? null, stars, text: clean, createdAt: t, ...(held.length ? { held } : {}) };
+  await ctx.store.saveReview(review);
+  if (held.length) {
+    // Не засчитываем, пока модератор не посмотрит
+    await notifyAdmins(ctx, { text: `Отзыв на проверке: ${"★".repeat(stars)} по «${listingTitle(l)}», ${l.locality}\nПочему: ${held.join(", ")}`, buttons: appButton(ctx, "Открыть админку", "admin") });
+    return true;
+  }
   l.rating = { sum: (l.rating?.sum ?? 0) + stars, count: (l.rating?.count ?? 0) + 1 };
   await ctx.store.saveListing(l);
   return true;
@@ -1672,7 +1744,10 @@ export async function processUpdate(ctx: Ctx, update: any) {
       const b = await ctx.store.getBooking(action ?? "");
       if (!b || b.guestId !== uid) return answer("Бронь не найдена.");
       const r = await addReview(ctx, b, int(id, 1, 5, 5), "");
-      return answer(r === true ? "Спасибо за оценку! Отзыв словами можно оставить в приложении, в «Моём»." : "Оценка уже есть.");
+      if (r !== true) return answer("Оценка уже есть.");
+      const stars = int(id, 1, 5, 5);
+      if (stars <= 2) await send(ctx, uid, { text: "Жаль, что не всё было хорошо. Напишите, что именно не так: модератор посмотрит, а другие гости будут знать.", buttons: appButton(ctx, "Написать отзыв") });
+      return answer("Спасибо за оценку!");
     }
 
     // Жалобы: adm:hide:<объявление>:<жалоба>, adm:ok:<жалоба>, adm:ban:<хозяин>:<жалоба>
@@ -1706,7 +1781,7 @@ export async function sweep(ctx: Ctx) {
         continue;
       }
       // День выезда наступил — просим гостя оценить (один раз)
-      if (b.status === "confirmed" && b.checkOut <= todaySamara(t) && !b.reviewAsked && !b.reviewed) {
+      if (b.status === "confirmed" && t >= checkoutMoment(b, l) + 3600_000 && !b.reviewAsked && !b.reviewed) {
         b.reviewAsked = true;
         await ctx.store.saveBooking(b);
         await send(ctx, b.guestId, reviewAsk(b, l));
@@ -1725,6 +1800,9 @@ export async function sweep(ctx: Ctx) {
     }
   }
 }
+
+/** Время выезда по Самаре (дата выезда + «Выезд до» из объявления) */
+const checkoutMoment = (b: Booking, l: Listing) => Date.parse(`${b.checkOut}T${l.checkOut || "12:00"}:00+04:00`);
 
 /** Через сколько непрочитанное сообщение превращается в напоминание в личку MAX */
 export const CHAT_WAKE_MS = 30 * 60_000;

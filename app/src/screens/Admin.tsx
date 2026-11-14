@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { CalendarDays, ChevronRight, Flag, History, Home, Lock, Search, ShieldCheck, Trash2, UserCog, UserMinus, UserPlus, Users } from "lucide-react";
 import { guestsText, nightsFrom, rangeText, rub } from "../../../shared/dates.ts";
 import type { Listing } from "../../../shared/types.ts";
-import { api, errorText, type AdminBookingRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
+import { api, errorText, type AdminBookingRow, type AdminReviewRow, type AdminListing, type AdminStats, type AdminUser, type AuditRow, type ComplaintRow, type HostApplicationRow, type StaffRow } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
 import { Badge, H1, Spinner, normalizePhone, phoneText } from "../ui/ui.tsx";
@@ -18,20 +18,33 @@ const SECTIONS: { id: Section; title: string; icon: typeof Flag; owner?: boolean
   { id: "apps", title: "Заявки", icon: UserPlus },
   { id: "complaints", title: "Жалобы", icon: Flag },
   { id: "bookings", title: "Брони", icon: CalendarDays, owner: true },
-  { id: "listings", title: "Объявления", icon: Home, owner: true },
+  { id: "listings", title: "Жильё", icon: Home, owner: true },
   { id: "people", title: "Люди", icon: Users, owner: true },
   { id: "team", title: "Команда", icon: UserCog, owner: true },
   { id: "log", title: "История", icon: History, owner: true },
 ];
+
+/** Последние данные каждого раздела — чтобы переключение было мгновенным, без «загрузки» */
+const memo = new Map<string, unknown>();
+function useCached<T>(key: string) {
+  const [v, setV] = useState<T | null>(() => (memo.get(key) as T | undefined) ?? null);
+  const set = (x: T | null | ((prev: T | null) => T | null)) =>
+    setV((prev) => {
+      const next = typeof x === "function" ? (x as (p: T | null) => T | null)(prev) : x;
+      memo.set(key, next);
+      return next;
+    });
+  return [v, set] as const;
+}
 
 const when = (ms: number) => new Date(ms).toLocaleString("ru-RU", { timeZone: "Europe/Samara", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string) => void }) {
   const [section, setSection] = useState<Section>("review");
   const sections = SECTIONS.filter((x) => !x.owner || props.owner);
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [stats, setStats] = useCached<AdminStats>("stats");
   const [msg, setMsg] = useState<string | null>(null);
-  useLive(() => api.stats().then(setStats), 30000, [section]);
+  useLive(() => api.stats().then(setStats), 30000);
 
   /** Выполнить действие и показать итог одной строкой */
   const act = async (fn: () => Promise<unknown>, done: string, after?: () => void) => {
@@ -57,9 +70,9 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
             ["людей", stats?.users ?? 0],
           ] as const
         ).map(([label, n]) => (
-          <div key={label} className="card px-3 py-2.5">
+          <div key={label} className="card flex flex-col items-center justify-center px-2 py-3 text-center">
             <div className="text-[22px] leading-none font-bold text-ink tabular-nums">{stats ? n : "–"}</div>
-            <div className="mt-1 text-[12px] leading-tight text-dim">{label}</div>
+            <div className="mt-1.5 text-[12px] leading-tight whitespace-nowrap text-dim">{label}</div>
           </div>
         ))}
       </div>
@@ -121,7 +134,7 @@ const REASONS: [string, string][] = [
 // --- Заявки «хочу сдавать» ---------------------------------------------------------------
 
 function Applications(props: { act: Act }) {
-  const [list, setList] = useState<HostApplicationRow[] | null>(null);
+  const [list, setList] = useCached<HostApplicationRow[]>("apps");
   const load = () => api.applications().then((r) => setList(r.applications), () => setList((x) => x ?? []));
   // Новое приходит само, без перезагрузки
   useLive(load, 15000);
@@ -165,7 +178,7 @@ function Applications(props: { act: Act }) {
 // --- Жалобы гостей ---------------------------------------------------------------------
 
 function Complaints(props: { act: Act; owner: boolean; onOpen: (id: string) => void }) {
-  const [complaints, setComplaints] = useState<ComplaintRow[] | null>(null);
+  const [complaints, setComplaints] = useCached<ComplaintRow[]>("complaints");
   const load = () => api.pending().then((r) => setComplaints(r.complaints), () => setComplaints((x) => x ?? []));
   // Новое приходит само, без перезагрузки
   useLive(load, 15000);
@@ -227,14 +240,50 @@ function Complaints(props: { act: Act; owner: boolean; onOpen: (id: string) => v
 // --- Проверка: новые и изменённые объявления ---------------------------------------------
 
 function Review(props: { act: Act }) {
-  const [list, setList] = useState<(Listing & { title: string; held: string[] })[] | null>(null);
-  const load = () => api.pending().then((r) => setList(r.listings), () => setList((x) => x ?? []));
+  const [list, setList] = useCached<(Listing & { title: string; held: string[] })[]>("review");
+  const [reviews, setReviews] = useCached<AdminReviewRow[]>("reviews");
+  const load = () => {
+    api.pending().then((r) => setList(r.listings), () => setList((x) => x ?? []));
+    api.adminReviews().then((r) => setReviews(r.reviews), () => {});
+  };
   // Новое приходит само, без перезагрузки
   useLive(load, 15000);
   if (!list) return <Spinner />;
   return (
     <>
-      {list.length === 0 && <p className="text-dim">Все объявления проверены.</p>}
+      {reviews && reviews.length > 0 && (
+        <section className="mb-5">
+          <h2 className="mb-2 text-[15px] font-bold text-ink">Отзывы на проверке</h2>
+          <ul className="space-y-3">
+            {reviews.map((r) => (
+              <li key={r.id} className="card px-4 py-3.5 text-[14px]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-ink">{r.title}</div>
+                    <div className="text-dim">{r.guestName ?? "Гость"}</div>
+                  </div>
+                  <span className="shrink-0 text-[#c08a1e]" aria-label={`Оценка ${r.stars} из 5`}>
+                    {"★".repeat(r.stars)}
+                    <span className="text-line">{"★".repeat(5 - r.stars)}</span>
+                  </span>
+                </div>
+                {r.text && <p className="mt-2 text-ink">«{r.text}»</p>}
+                {r.held?.length ? <p className="mt-2 rounded-lg bg-[#f6ecd9] px-3 py-2 text-[13px] text-warn">Смотритель придержал: {r.held.join(", ")}</p> : null}
+                {r.disputed && <p className="mt-2 rounded-lg bg-accent-soft px-3 py-2 text-[13px] text-ink">Хозяин оспаривает: «{r.disputed}»</p>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminReview(r.listingId, r.id, true), r.held?.length ? "Отзыв засчитан." : "Отзыв оставлен.", load)}>
+                    {r.held?.length ? "Засчитать" : "Оставить"}
+                  </button>
+                  <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad" onClick={() => props.act(() => api.adminReview(r.listingId, r.id, false), "Отзыв убран.", load)}>
+                    Убрать
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {list.length === 0 && <p className="text-dim">{reviews?.length ? "Объявления все проверены." : "Всё проверено."}</p>}
       <ul className="space-y-4">
         {list.map((l) => {
           const live = l.status === "active";
@@ -294,7 +343,7 @@ const STATUS_FILTER: [string, string][] = [
 function AllListings(props: { act: Act }) {
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
-  const [list, setList] = useState<AdminListing[] | null>(null);
+  const [list, setList] = useCached<AdminListing[]>("listings");
   const load = () => api.adminListings(status, q).then((r) => setList(r.listings), () => setList([]));
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -377,7 +426,7 @@ function AllListings(props: { act: Act }) {
 
 function People(props: { act: Act }) {
   const [q, setQ] = useState("");
-  const [list, setList] = useState<AdminUser[] | null>(null);
+  const [list, setList] = useCached<AdminUser[]>("people");
   const load = () => api.adminUsers(q).then((r) => setList(r.users), () => setList([]));
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -394,27 +443,24 @@ function People(props: { act: Act }) {
       ) : (
         <ul className="mt-3 card divide-y divide-line">
           {list.map((u) => (
-            <li key={u.id} className="px-4 py-3.5 text-[14px]">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 space-y-1">
-                  <div className="font-semibold leading-snug text-ink">
-                    {u.name ?? "Без имени"}
-                    {u.role && <span className="ml-2 rounded bg-accent-soft px-1.5 text-[12px] font-semibold text-accent">{u.role === "owner" ? "главный" : "модератор"}</span>}
-                    {u.blocked && <span className="ml-2 rounded bg-[#f5e1dd] px-1.5 text-[12px] font-semibold text-bad">заблокирован</span>}
-                  </div>
-                  <div className="text-dim">{u.phone ? phoneText(u.phone) : "номер не оставлял"}</div>
-                  <div className="text-[13px] text-dim">
-                    объявлений {u.listings} · броней {u.bookings}
-                  </div>
-                </div>
-                {u.role !== "owner" && (
-                  <div className="flex shrink-0 flex-col items-stretch gap-2">
-                    {u.blocked ? (
-                      <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
+            <li key={u.id} className="px-4 py-4 text-[14px]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-semibold leading-snug text-ink">{u.name ?? "Без имени"}</span>
+                {u.role && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[12px] font-semibold text-accent">{u.role === "owner" ? "главный" : "модератор"}</span>}
+                {u.blocked && <span className="rounded-full bg-[#f5e1dd] px-2 py-0.5 text-[12px] font-semibold text-bad">заблокирован</span>}
+              </div>
+              <div className="mt-1 text-dim">{u.phone ? phoneText(u.phone) : "номер не оставлял"}</div>
+              <div className="mt-0.5 text-[13px] text-dim">
+                объявлений {u.listings} · броней {u.bookings}
+              </div>
+              {u.role !== "owner" && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {u.blocked ? (
+                    <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
                         Разблокировать
                       </button>
-                    ) : (
-                      <button
+                  ) : (
+                    <button
                         className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                         onClick={async () => {
                           const note = await askText("За что блокируете?", "Обман", { text: "Объявления человека снимутся, его брони отменятся.", ok: "Заблокировать", danger: true });
@@ -423,8 +469,8 @@ function People(props: { act: Act }) {
                       >
                         Заблокировать
                       </button>
-                    )}
-                    <button
+                  )}
+                  <button
                       className="flex items-center justify-center gap-1 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => {
                         const who = u.name ?? "человека";
@@ -444,9 +490,8 @@ function People(props: { act: Act }) {
                     >
                       <Trash2 size={14} aria-hidden /> Удалить
                     </button>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -458,7 +503,7 @@ function People(props: { act: Act }) {
 // --- Модераторы: главный назначает модераторов по номеру ---------------------------------------
 
 function Team(props: { act: Act; owner: boolean }) {
-  const [staff, setStaff] = useState<StaffRow[] | null>(null);
+  const [staff, setStaff] = useCached<StaffRow[]>("team");
   const [modCode, setModCode] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -532,7 +577,7 @@ function Team(props: { act: Act; owner: boolean }) {
 // --- Брони: все запросы гостей и ближайшие заезды ----------------------------------------------
 
 function Bookings(props: { act: Act }) {
-  const [list, setList] = useState<AdminBookingRow[] | null>(null);
+  const [list, setList] = useCached<AdminBookingRow[]>("bookings");
   const load = () => api.adminBookings().then((r) => setList(r.bookings), () => setList((x) => x ?? []));
   useLive(load, 15000);
   if (!list) return <Spinner />;
@@ -596,7 +641,7 @@ function Bookings(props: { act: Act }) {
 // --- История: кто из модераторов что сделал ------------------------------------------------------
 
 function Log() {
-  const [entries, setEntries] = useState<AuditRow[] | null>(null);
+  const [entries, setEntries] = useCached<AuditRow[]>("log");
   const remove = async (e: AuditRow) => {
     if (!(await ask("Удалить запись?", { text: "Она пропадёт из истории насовсем.", ok: "Удалить", danger: true }))) return;
     try {

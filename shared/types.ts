@@ -108,6 +108,14 @@ export interface Review {
   stars: number;
   text: string;
   createdAt: number;
+  /** смотритель придержал: не засчитан и не виден, пока модератор не решит */
+  held?: string[];
+  /** хозяин оспорил (его объяснение) — модератор решает, оставить или убрать */
+  disputed?: string;
+  /** модератор уже решил по придержанному или оспоренному */
+  checked?: boolean;
+  /** убран модератором: не виден и не считается */
+  removed?: boolean;
 }
 
 /** Команда площадки. owner — главный (Сергей): назначает модераторов; moderator — проверяет объявления и жалобы */
@@ -333,7 +341,7 @@ export type PublicListing = Omit<Listing, "flat" | "ownerId" | "closed" | "moder
   /** занятые ночи на ближайшие 120 дней */
   busy: string[];
   stars: number | null;
-  reviewList: Pick<Review, "id" | "guestName" | "stars" | "text" | "createdAt">[];
+  reviewList: (Pick<Review, "id" | "guestName" | "stars" | "text" | "createdAt"> & { disputed?: boolean })[];
   favorite: boolean;
   /** номер хозяина — только если он сам разрешил показывать его до брони */
   hostPhone: string | null;

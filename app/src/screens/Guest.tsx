@@ -447,7 +447,30 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
                     </span>
                   </div>
                   {r.text && <p className="mt-0.5">{r.text}</p>}
-                  <div className="mt-0.5 text-[12px] text-dim">{dayText(new Date(r.createdAt + 4 * 3600e3).toISOString().slice(0, 10))}</div>
+                  <div className="mt-0.5 flex items-center justify-between gap-3 text-[12px] text-dim">
+                    <span>{dayText(new Date(r.createdAt + 4 * 3600e3).toISOString().slice(0, 10))}</span>
+                    {/* Хозяин не согласен с оценкой — объясняет модератору */}
+                    {data.own &&
+                      (r.disputed ? (
+                        <span>оспорено, ждёт модератора</span>
+                      ) : (
+                        <button
+                          className="font-semibold text-accent"
+                          onClick={async () => {
+                            const why = await askText("Оспорить отзыв?", "", { text: "Объясните модератору, что не так. Он посмотрит бронь и переписку и решит, оставить отзыв или убрать.", ok: "Отправить", placeholder: "Например: гость не приезжал, оценка за другое жильё" });
+                            if (why === null) return;
+                            try {
+                              await api.disputeReview(l.id, r.id, why);
+                              setData((d) => (d ? { ...d, listing: { ...d.listing, reviewList: d.listing.reviewList.map((x) => (x.id === r.id ? { ...x, disputed: true } : x)) } } : d));
+                            } catch (e) {
+                              tell("Не получилось", errorText(e));
+                            }
+                          }}
+                        >
+                          Оспорить
+                        </button>
+                      ))}
+                  </div>
                 </li>
               ))}
             </ul>

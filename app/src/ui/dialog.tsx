@@ -56,6 +56,8 @@ export function DialogHost() {
     setQueue((q) => q.slice(1));
   };
   const okDisabled = !!cur.input && !value.trim();
+  // «Заблокировать и удалить» в половину ширины не влезает — тогда кнопки во всю ширину, одна под другой
+  const stacked = cur.cancel === null || (cur.ok ?? "").length > 12 || (cur.cancel ?? "").length > 12;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={cur.title} onClick={() => cur.cancel !== null && close(cur.input ? null : false)}>
       <div className="w-full max-w-[420px] rounded-2xl bg-surface p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_8px_32px_rgb(0_0_0/0.18)]" onClick={(e) => e.stopPropagation()}>
@@ -64,13 +66,13 @@ export function DialogHost() {
         {cur.input && (
           <textarea ref={inputRef} className="field mt-3 resize-none" rows={2} maxLength={300} value={value} placeholder={cur.input.placeholder} onChange={(e) => setValue(e.target.value)} />
         )}
-        <div className={`mt-4 grid gap-2 ${cur.cancel === null ? "grid-cols-1" : "grid-cols-2"}`}>
+        <div className={`mt-4 gap-2 ${stacked ? "flex flex-col-reverse" : "grid grid-cols-2"}`}>
           {cur.cancel !== null && (
-            <button className="btn btn-line" onClick={() => close(cur.input ? null : false)}>
+            <button className="btn btn-line px-4 text-center leading-tight" onClick={() => close(cur.input ? null : false)}>
               {cur.cancel ?? "Отмена"}
             </button>
           )}
-          <button className={`btn ${cur.danger ? "bg-bad text-white" : "btn-main"}`} disabled={okDisabled} onClick={() => close(cur.input ? value.trim() : true)}>
+          <button className={`btn px-4 text-center leading-tight ${cur.danger ? "bg-bad text-white" : "btn-main"}`} disabled={okDisabled} onClick={() => close(cur.input ? value.trim() : true)}>
             {cur.ok ?? "Да"}
           </button>
         </div>

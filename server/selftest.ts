@@ -1022,5 +1022,99 @@ await approveHost(HOST6);
   check("в цифрах есть «ждут проверки»", typeof (await call("/admin/stats", ADMIN)).json.toReview === "number");
 }
 
+// --- 14.11: смотритель отзывов, «оспорить», просьба оценить после времени выезда ---------------------
+{
+  const HR = 201;
+  await call("/phone", HR, { phone: "+79270000201", consent: true });
+  await approveHost(HR);
+  const mk = async (addr: string) => {
+    const id = (await call("/host/save", HR, { form: { ...form, address: addr, description: `Квартира ${addr}, чисто и тихо, рядом магазины` } })).json.listing.id as string;
+    await call("/host/photos-request", HR, { id });
+    await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HR }, body: { text: "", attachments: [img(Math.floor(Math.random() * 1e6)), img(Math.floor(Math.random() * 1e6))] } } });
+    await call("/host/submit", HR, { id });
+    return id;
+  };
+  const LA = await mk("ул. Отзывная, 1");
+  const LB = await mk("ул. Отзывная, 2");
+  const LC = await mk("ул. Отзывная, 3");
+  const past = addDays(todaySamara(clock), -3);
+  let n = 0;
+  // Подтверждённая бронь, выезд уже был — можно оценить
+  const stay = async (guest: number, listingId: string) => {
+    const id = `rv${guest}${n++}`;
+    await ctx.store.saveBooking({ id, listingId, ownerId: HR, guestId: guest, guestName: `G${guest}`, guestPhone: null, checkIn: past, checkOut: addDays(past, 1), guests: 1, nights: 1, total: 2000, comment: "", status: "confirmed", createdAt: clock - 5 * 86_400_000, decideBy: clock } as any);
+    return id;
+  };
+  const rating = async (id: string) => (await ctx.store.getListing(id))?.rating;
+  const visible = async (id: string) => (await call("/listing", 299, { id })).json.listing.reviewList;
+
+  // Обычная честная оценка — засчитана сразу, даже низкая
+  const G1 = 202;
+  await call("/phone", G1, { phone: "+79270000202", consent: true });
+  await ctx.store.saveUser({ ...(await ctx.store.getUser(G1))!, createdAt: clock - 30 * 86_400_000 });
+  await call("/review", G1, { bookingId: await stay(G1, LA), stars: 2, text: "Было шумно, соседи ругались ночью" });
+  check("честная двойка засчитана сразу", (await rating(LA))?.count === 1 && (await visible(LA)).length === 1);
+
+  // Хозяин оценивает себя со второго аккаунта (тот же номер) — придержано
+  const SELF = 203;
+  await call("/phone", SELF, { phone: "+79270000201", consent: true });
+  await call("/review", SELF, { bookingId: await stay(SELF, LB), stars: 5 });
+  check("оценка с номером хозяина придержана", !(await rating(LB)) && (await visible(LB)).length === 0);
+  check("модератор видит придержанный отзыв", (await call("/admin/reviews", ADMIN)).json.reviews.some((r: any) => r.listingId === LB && r.held?.length));
+
+  // Кольцо: один гость хвалит третье объявление того же хозяина
+  const RING = 204;
+  await call("/phone", RING, { phone: "+79270000204", consent: true });
+  const b1 = await stay(RING, LA);
+  const b2 = await stay(RING, LB);
+  await call("/review", RING, { bookingId: b1, stars: 5 });
+  await ctx.store.saveBooking({ ...(await ctx.store.getBooking(b1))!, reviewed: true });
+  await call("/review", RING, { bookingId: b2, stars: 5 });
+  await call("/review", RING, { bookingId: await stay(RING, LC), stars: 5 });
+  check("кольцо: третья пятёрка тому же хозяину придержана", !(await rating(LC)));
+
+  // Мат в тексте — придержано
+  const RUDEG = 205;
+  await call("/phone", RUDEG, { phone: "+79270000205", consent: true });
+  const before = (await rating(LA))?.count ?? 0;
+  await call("/review", RUDEG, { bookingId: await stay(RUDEG, LA), stars: 1, text: "хозяин мудак" });
+  check("отзыв с матом придержан", ((await rating(LA))?.count ?? 0) === before);
+
+  // Модератор: засчитать придержанный — рейтинг вырос; убрать — не виден
+  const held = (await call("/admin/reviews", ADMIN)).json.reviews;
+  const selfRev = held.find((r: any) => r.listingId === LB && r.stars === 5);
+  check("модератор не-команда не решает", (await call("/admin/review", G1, { listingId: LB, id: selfRev.id, keep: true })).status === 403);
+  await call("/admin/review", ADMIN, { listingId: LB, id: selfRev.id, keep: false });
+  check("убранный отзыв не виден и не считается", (await visible(LB)).every((r: any) => r.id !== selfRev.id));
+  const rudeRev = held.find((r: any) => r.listingId === LA && r.stars === 1);
+  await call("/admin/review", ADMIN, { listingId: LA, id: rudeRev.id, keep: true });
+  check("засчитанный модератором — в рейтинге", (await rating(LA))?.count === before + 1);
+
+  // Хозяин оспаривает честную двойку → модератор убирает → рейтинг пересчитан
+  const two = (await visible(LA)).find((r: any) => r.stars === 2);
+  check("чужой хозяин оспорить не может", (await call("/host/review/dispute", G1, { listingId: LA, id: two.id, text: "это не мой гость вообще" })).status === 404);
+  check("слишком короткое объяснение — нет", (await call("/host/review/dispute", HR, { listingId: LA, id: two.id, text: "ложь" })).status === 400);
+  check("хозяин оспорил", (await call("/host/review/dispute", HR, { listingId: LA, id: two.id, text: "Гость сам шумел, соседи жаловались на него" })).status === 200);
+  check("оспоренное видно с пометкой", (await visible(LA)).find((r: any) => r.id === two.id)?.disputed === true);
+  check("второй раз не оспорить", (await call("/host/review/dispute", HR, { listingId: LA, id: two.id, text: "ещё раз прошу посмотреть" })).status === 409);
+  const cnt = (await rating(LA))!.count;
+  await call("/admin/review", ADMIN, { listingId: LA, id: two.id, keep: false });
+  check("модератор убрал оспоренный — рейтинг пересчитан", (await rating(LA))?.count === cnt - 1 && lastTo(HR)?.text.includes("убран") === true);
+
+  // Просьба оценить — не раньше чем через час после времени выезда
+  const G6 = 206;
+  const today = todaySamara(clock);
+  const bk = `ask${G6}`;
+  await ctx.store.saveBooking({ id: bk, listingId: LA, ownerId: HR, guestId: G6, guestName: "G6", guestPhone: null, checkIn: addDays(today, -1), checkOut: today, guests: 1, nights: 1, total: 2000, comment: "", status: "confirmed", createdAt: clock, decideBy: clock } as any);
+  const saved = clock;
+  clock = Date.parse(`${today}T09:00:00+04:00`);
+  await sweep(ctx);
+  check("утром в день выезда оценку ещё не просим", !(await ctx.store.getBooking(bk))?.reviewAsked);
+  clock = Date.parse(`${today}T13:05:00+04:00`);
+  await sweep(ctx);
+  check("через час после выезда — просим оценить кнопками 1–5", (await ctx.store.getBooking(bk))?.reviewAsked === true && lastTo(G6)?.buttons.includes(`rv:${bk}:1`) === true);
+  clock = saved;
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);
