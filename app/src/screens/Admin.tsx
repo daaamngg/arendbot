@@ -551,6 +551,7 @@ function Support(props: { act: Act }) {
 
 function Team(props: { act: Act; owner: boolean }) {
   const [staff, setStaff] = useCached<StaffRow[]>("team");
+  const [stats] = useCached<AdminStats>("stats");
   const [modCode, setModCode] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -585,6 +586,12 @@ function Team(props: { act: Act; owner: boolean }) {
           </li>
         ))}
       </ul>
+      {/* Резервная копия базы: делается сама каждую ночь после 3:00, хранится 30 дней */}
+      {props.owner && (
+        <p className="mt-4 rounded-xl bg-surface-2 px-4 py-3 text-[13px] text-dim">
+          {stats?.backup ? `Резервная копия базы: последняя ${stats.backup.day.split("-").reverse().join(".")}, записей ${stats.backup.rows}. Делается сама каждую ночь.` : "Резервная копия базы делается сама каждую ночь после 3:00. Первая появится этой ночью."}
+        </p>
+      )}
       {props.owner ? (
         <section className="mt-5 card space-y-3 p-4">
           <h2 className="font-bold text-ink">Код модераторов</h2>
