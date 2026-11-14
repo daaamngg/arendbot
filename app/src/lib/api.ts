@@ -306,6 +306,7 @@ export const api = {
   adminRestore: (id: string) => post<{ listing: Listing }>("/admin/restore", { id }),
   adminUsers: (q: string) => post<{ users: AdminUser[] }>("/admin/users", { q }),
   adminBlockUser: (id: number, blocked: boolean, note?: string) => post<{ ok: true }>("/admin/user/block", { id, blocked, note }),
+  adminDeleteUser: (id: number, block: boolean, note?: string) => post<{ ok: true }>("/admin/user/delete", { id, block, note }),
   staff: () => post<{ staff: StaffRow[]; owner: boolean }>("/admin/staff"),
   staffRemove: (id: number) => post<{ ok: true }>("/admin/staff/remove", { id }),
   stats: () => post<AdminStats>("/admin/stats"),

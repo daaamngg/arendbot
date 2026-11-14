@@ -902,5 +902,55 @@ await approveHost(HOST6);
   check("остальные записи на месте", (await call("/admin/audit", ADMIN)).json.entries.length >= Math.min(entries.length - 1, 99));
 }
 
+// --- 14.11: снятое объявление хозяин исправляет; удаление людей; стирание снятых -----------------
+{
+  const HB = 192;
+  const GB = 193;
+  await call("/phone", HB, { phone: "+79270000192", consent: true });
+  await approveHost(HB);
+  await call("/phone", GB, { phone: "+79270000193", consent: true });
+  const id = (await call("/host/save", HB, { form: { ...form, address: "ул. Снятая, 3" } })).json.listing.id as string;
+  await call("/host/photos-request", HB, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HB }, body: { text: "", attachments: [img(961), img(962)] } } });
+  await call("/host/submit", HB, { id });
+  await call("/admin/block", ADMIN, { id, note: "Фото не совпадают с адресом" });
+  check("снято: хозяин видит причину", (await call("/host/listing", HB, { id })).json.listing.moderatorNote === "Фото не совпадают с адресом");
+  check("снятое хозяин может исправить", (await call("/host/save", HB, { id, form: { ...form, address: "ул. Снятая, 3", description: "Новые фото, всё совпадает" } })).status === 200);
+  check("после правки всё ещё снято (не в поиске)", (await ctx.store.getListing(id))?.status === "blocked");
+  const re = (await call("/host/submit", HB, { id })).json;
+  const after = await ctx.store.getListing(id);
+  check("снятое после отправки — на проверке у человека, не в поиске", re.live === false && after?.status === "pending" && after?.checked === false);
+  check("модератор видит прежнюю причину", (after?.botReasons ?? []).some((r) => r.includes("Фото не совпадают")));
+
+  // Хозяин удаляет своё снятое объявление
+  await call("/admin/block", ADMIN, { id, note: "Снова не то" });
+  check("хозяин удалил снятое", (await call("/host/delete", HB, { id })).status === 200 && (await ctx.store.getListing(id))?.status === "deleted");
+
+  // Главный стирает снятое насовсем сразу, без «удалить» перед этим
+  const id2 = (await call("/host/save", HB, { form: { ...form, address: "ул. Снятая, 5" } })).json.listing.id as string;
+  await call("/admin/block", ADMIN, { id: id2, note: "Обман" });
+  check("снятое стирается насовсем сразу", (await call("/admin/listing/purge", ADMIN, { id: id2 })).status === 200 && (await ctx.store.getListing(id2)) === undefined);
+
+  // Удалить человека: модератор не может, себя и главного нельзя
+  check("модератор людей не удаляет", (await call("/admin/user/delete", 150, { id: GB })).status === 403);
+  check("себя удалить нельзя", (await call("/admin/user/delete", ADMIN, { id: ADMIN })).json.error === "bad user");
+  // Без блокировки: данных не остаётся, в «Людях» не видно, вернулся — как новый
+  check("удалили человека", (await call("/admin/user/delete", ADMIN, { id: GB })).status === 200);
+  const gone = await ctx.store.getUser(GB);
+  check("удалённый: ни имени, ни номера", gone?.name === null && gone?.phone === null && !!gone?.deletedAt && !gone?.blocked);
+  check("удалённого нет в «Людях»", !(await call("/admin/users", ADMIN, { q: "" })).json.users.some((u: any) => u.id === GB));
+  await call("/me", GB, {});
+  check("вернулся — снова обычный человек", !(await ctx.store.getUser(GB))?.deletedAt);
+
+  // С блокировкой: объявления стёрты, номер остался для проверки, зайти нельзя
+  const id3 = (await call("/host/save", HB, { form: { ...form, address: "ул. Снятая, 7" } })).json.listing.id as string;
+  check("заблокировали и удалили хозяина", (await call("/admin/user/delete", ADMIN, { id: HB, block: true, note: "Мошенник" })).status === 200);
+  const hb = await ctx.store.getUser(HB);
+  check("у заблокированного остались только номер и отметка", hb?.blocked === true && hb?.phone === "+79270000192" && hb?.name === null);
+  check("его объявления стёрты насовсем", (await ctx.store.getListing(id3)) === undefined);
+  check("заблокированный и удалённый не может работать", (await call("/host/listings", HB)).status === 403);
+  check("второй раз удалить нельзя", (await call("/admin/user/delete", ADMIN, { id: HB })).status === 404);
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

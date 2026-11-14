@@ -25,7 +25,7 @@ const open = (r: Omit<Req, "resolve">) =>
   });
 
 /** «Вы уверены?» → true / false */
-export const ask = (title: string, opts: { text?: string; ok?: string; danger?: boolean } = {}) => open({ title, ...opts }) as Promise<boolean>;
+export const ask = (title: string, opts: { text?: string; ok?: string; cancel?: string; danger?: boolean } = {}) => open({ title, ...opts }) as Promise<boolean>;
 /** Сообщение с одной кнопкой «Понятно» */
 export const tell = (title: string, text?: string) => open({ title, text, ok: "Понятно", cancel: null }).then(() => undefined);
 /** Вопрос с полем ввода → текст или null (отмена) */

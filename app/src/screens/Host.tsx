@@ -140,14 +140,14 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
                 <Badge listing={r.status} />
                 {r.requests > 0 && <span className="text-[13px] font-semibold text-accent">запросов: {r.requests}</span>}
               </div>
-              {r.moderatorNote && r.status === "rejected" && <p className="mt-1 text-[13px] text-bad">{r.moderatorNote}</p>}
+              {r.moderatorNote && (r.status === "rejected" || r.status === "blocked") && <p className="mt-1 text-[13px] leading-snug text-bad">{r.moderatorNote}</p>}
               <div className="mt-2 flex gap-4 text-[14px] font-semibold text-accent">
                 <button onClick={() => props.onEdit(r.id)}>Изменить</button>
                 <button onClick={() => props.onCalendar(r.id)}>Календарь</button>
               </div>
             </div>
             {/* Удалить, не заходя в анкету */}
-            {r.status !== "blocked" && (
+            {r.status !== "deleted" && (
               <button
                 className="grid size-10 shrink-0 place-items-center self-start rounded-full text-dim active:bg-surface-2"
                 aria-label="Удалить объявление"
@@ -324,7 +324,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
 
   // Черновик сохраняется сам через 2 секунды после последней правки: остановился на полпути — ничего не пропадёт.
   // Только для черновиков и возвращённых: опубликованное правится кнопкой «Сохранить» (правки уходят на проверку)
-  const autosave = !l || l.status === "draft" || l.status === "rejected";
+  const autosave = !l || l.status === "draft" || l.status === "rejected" || l.status === "blocked";
   useEffect(() => {
     if (!touched.current || !autosave) return;
     const t = setTimeout(async () => {
@@ -410,7 +410,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
   if (props.id && !l) return <Spinner />;
   const districts = props.me.districts[form.locality ?? ""] ?? [];
   const photos = l?.photos ?? [];
-  const canSubmit = l && ["draft", "rejected", "paused"].includes(l.status);
+  const canSubmit = l && ["draft", "rejected", "paused", "blocked"].includes(l.status);
   const toggleAmenity = (a: string) => set({ amenities: form.amenities?.includes(a) ? form.amenities.filter((x) => x !== a) : [...(form.amenities ?? []), a] });
 
   const num = (k: "area" | "floor" | "priceWeekday" | "priceWeekend" | "deposit") => ({
@@ -431,6 +431,14 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
         {l && <Badge listing={l.status} />}
       </div>
       {l?.status === "rejected" && l.moderatorNote && <p className="mb-3 rounded-lg bg-[#f5e1dd] p-3 text-[14px] text-bad">Модератор: {l.moderatorNote}</p>}
+      {/* Снято модератором: причина и что делать дальше */}
+      {l?.status === "blocked" && (
+        <div className="mb-4 rounded-xl bg-[#f5e1dd] px-4 py-3.5 text-[14px] leading-relaxed text-bad">
+          <p className="font-semibold">Объявление снято модератором</p>
+          {l.moderatorNote && <p className="mt-1.5 text-ink">Причина: {l.moderatorNote}</p>}
+          <p className="mt-2 text-ink">Исправьте то, что не так, и нажмите «Отправить на проверку». Модератор посмотрит снова и вернёт объявление в поиск.</p>
+        </div>
+      )}
 
       <div className="space-y-5">
         {/* Фото — первыми: это главное, что видит гость. Плитка «+» в конце сетки */}
@@ -591,7 +599,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
           <textarea
             id="f-desc"
             className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] text-ink outline-none"
-            rows={4}
+            rows={6}
             maxLength={3000}
             value={form.description ?? ""}
             onChange={(e) => set({ description: e.target.value })}
@@ -619,7 +627,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
         </button>
       )}
       {/* Удалить совсем. Подтверждённые будущие брони сервер не даст бросить — скажет отменить их сначала */}
-      {l && l.status !== "blocked" && (
+      {l && (
         <button
           className="mt-8 mb-10 block text-[14px] font-semibold text-bad"
           onClick={async () => {
@@ -644,7 +652,7 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
       <Sticky>
         {canSubmit ? (
           <button className="btn btn-main w-full" onClick={submit} disabled={busy || missing.length > 0}>
-            {missing.length ? `Осталось заполнить: ${missing.length}` : "Опубликовать"}
+            {missing.length ? `Осталось заполнить: ${missing.length}` : l?.status === "blocked" ? "Отправить на проверку" : "Опубликовать"}
           </button>
         ) : (
           <button className="btn btn-main w-full" onClick={save} disabled={busy}>

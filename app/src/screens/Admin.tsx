@@ -308,7 +308,7 @@ function AllListings(props: { act: Act }) {
                       Снять
                     </button>
                   )}
-                  {l.status === "deleted" && (
+                  {(l.status === "deleted" || l.status === "blocked") && (
                     <button
                       className="font-semibold text-bad"
                       onClick={async () => (await ask("Стереть насовсем?", { text: "Объявление исчезнет из базы. Вернуть его будет нельзя.", ok: "Стереть", danger: true })) && props.act(() => api.adminPurgeListing(l.id), "Объявление стёрто.", load)}
@@ -316,7 +316,7 @@ function AllListings(props: { act: Act }) {
                       Стереть насовсем
                     </button>
                   )}
-                  {l.status !== "deleted" && (
+                  {l.status !== "deleted" && l.status !== "blocked" && (
                     <button
                       className="font-semibold text-bad"
                       onClick={async () => {
@@ -376,22 +376,45 @@ function People(props: { act: Act }) {
                     объявлений {u.listings} · броней {u.bookings}
                   </div>
                 </div>
-                {u.role !== "owner" &&
-                  (u.blocked ? (
-                    <button className="shrink-0 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
-                      Разблокировать
-                    </button>
-                  ) : (
+                {u.role !== "owner" && (
+                  <div className="flex shrink-0 flex-col items-stretch gap-2">
+                    {u.blocked ? (
+                      <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminBlockUser(u.id, false), "Разблокирован.", load)}>
+                        Разблокировать
+                      </button>
+                    ) : (
+                      <button
+                        className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
+                        onClick={async () => {
+                          const note = await askText("За что блокируете?", "Обман", { text: "Объявления человека снимутся, его брони отменятся.", ok: "Заблокировать", danger: true });
+                          if (note !== null) props.act(() => api.adminBlockUser(u.id, true, note), "Заблокирован.", load);
+                        }}
+                      >
+                        Заблокировать
+                      </button>
+                    )}
                     <button
-                      className="shrink-0 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
+                      className="flex items-center justify-center gap-1 rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-bad"
                       onClick={async () => {
-                        const note = await askText("За что блокируете?", "Обман", { text: "Объявления человека снимутся, его брони отменятся.", ok: "Заблокировать", danger: true });
-                        if (note !== null) props.act(() => api.adminBlockUser(u.id, true, note), "Заблокирован.", load);
+                        const who = u.name ?? "человека";
+                        const sure = await ask(`Удалить ${who}?`, { text: "Его объявления сотрутся насовсем, брони и запросы отменятся. Вернуть будет нельзя.", ok: "Удалить", danger: true });
+                        if (!sure) return;
+                        // Заблокированный удаляется с блокировкой; остальных — спросить, блокировать ли
+                        const block =
+                          u.blocked ||
+                          (await ask("Заодно заблокировать?", {
+                            text: "Тогда он не сможет снова зайти в бот и сдавать. Номер останется в базе, чтобы бот узнал его с другого аккаунта.",
+                            ok: "Заблокировать и удалить",
+                            cancel: "Только удалить",
+                            danger: true,
+                          }));
+                        props.act(() => api.adminDeleteUser(u.id, block), block ? "Заблокирован и удалён." : "Удалён.", load);
                       }}
                     >
-                      Заблокировать
+                      <Trash2 size={14} aria-hidden /> Удалить
                     </button>
-                  ))}
+                  </div>
+                )}
               </div>
             </li>
           ))}

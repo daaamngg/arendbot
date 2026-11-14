@@ -141,6 +141,11 @@ function auth(ctx: Ctx, body: any): { init: VerifiedInit; uid: number } | Res {
 async function userOf(ctx: Ctx, uid: number, init?: VerifiedInit): Promise<User> {
   const u = await ctx.store.getUser(uid);
   if (u) {
+    // Удалённый администратором (не заблокированный) снова зашёл — дальше он обычный новый человек
+    if (u.deletedAt && !u.blocked) {
+      u.deletedAt = undefined;
+      await ctx.store.saveUser(u);
+    }
     // Имя в MAX могло поменяться — держим свежее
     if (init?.user?.first_name && u.name !== safeName(init.user.first_name)) {
       u.name = safeName(init.user.first_name);
@@ -967,7 +972,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         if ((await ctx.store.listListings({ ownerId: uid })).length >= 20) return fail(400, "too many listings");
         l = newListing(uid, t);
       }
-      if (l.status === "blocked") return fail(403, "blocked");
+      // Снятое модератором хозяин правит, но в поиск оно вернётся только после повторной проверки (см. /host/submit)
       // Телефоны, ссылки и «пишите в WhatsApp» — главный путь мошенников мимо площадки. Не сохраняем
       if (hasContacts(str(body?.form?.description, 3000)) || hasContacts(str(body?.form?.address, 200)) || hasContacts(str(body?.form?.flat, 120))) return fail(400, "contacts");
       const before = JSON.stringify(CONTENT_FIELDS.map((k) => l![k]));
@@ -1012,12 +1017,23 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/host/submit": {
       const l = await ownListing(body?.id);
       if (!l) return fail(404, "not found");
-      if (!["draft", "rejected", "paused"].includes(l.status)) return fail(400, "bad status");
+      if (!["draft", "rejected", "paused", "blocked"].includes(l.status)) return fail(400, "bad status");
       if ((await hostStatusOf(ctx, user)) !== "approved") return fail(403, "not host");
       const missing = missingForSubmit(l);
       if (missing.length) return fail(400, "incomplete", { missing });
       l.submittedAt = t;
       l.updatedAt = t;
+      // Снятое модератором — всегда к человеку на проверку, бот сам не публикует. Причину снятия модератор видит
+      if (l.status === "blocked") {
+        if (limited(`rs:${uid}`, 5)) return fail(429, "too many");
+        const why = [`раньше снято модератором: ${l.moderatorNote ?? "без причины"}`];
+        l.status = "pending";
+        l.checked = l.botChecked = false;
+        l.botReasons = why;
+        await ctx.store.saveListing(l);
+        await notifyAdmins(ctx, toModerator(l, user.phone, true, false, why, appButton(ctx, "Открыть объявление", `l_${l.id}`)), `l-${l.id}`);
+        return ok({ listing: l, live: false });
+      }
       const live = await publishOrHold(ctx, l, user.phone, l.status !== "draft");
       // В личку не пишем: статус («В поиске» / «На проверке») виден в приложении сразу
       return ok({ listing: l, live });
@@ -1028,7 +1044,6 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       // ждущие ответа запросы отклоняются сами и гостям приходит сообщение
       const l = await ownListing(body?.id);
       if (!l || l.status === "deleted") return fail(404, "not found");
-      if (l.status === "blocked") return fail(400, "bad status");
       const today = todaySamara(t);
       const all = await ctx.store.listBookings({ listingId: l.id, status: ["requested", "confirmed"] });
       if (all.some((b) => b.status === "confirmed" && b.checkOut > today)) return fail(409, "has bookings");
@@ -1164,7 +1179,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/admin/users": {
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       // Тестовые люди (проверка облака, демо — номера от 900 000 000) в настоящем боте не показываем
-      const users = (await ctx.store.searchUsers(str(body?.q, 60), 60)).filter((u) => ctx.config.demo || u.id < 900_000_000).slice(0, 50);
+      const users = (await ctx.store.searchUsers(str(body?.q, 60), 60)).filter((u) => !u.deletedAt && (ctx.config.demo || u.id < 900_000_000)).slice(0, 50);
       const staff = await ctx.store.getStaff();
       const rows = await Promise.all(
         users.map(async (u) => ({
@@ -1204,6 +1219,32 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       return ok({ ok: true });
     }
 
+    case "/admin/user/delete": {
+      // Удалить человека: его объявления стираются насовсем, брони и запросы отменяются.
+      // block — заодно заблокировать. Тогда от него остаётся только номер и отметка: под этим номером
+      // бот узнает его, если он вернётся с другого аккаунта. Без блокировки — не остаётся ничего, кроме id
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      const target = Number(body?.id);
+      if (!target || target === uid) return fail(400, "bad user");
+      if ((await ctx.store.getStaff()).some((m) => m.id === target && m.role === "owner")) return fail(400, "owner");
+      const u = await ctx.store.getUser(target);
+      if (!u || u.deletedAt) return fail(404, "not found");
+      const block = body?.block === true || !!u.blocked;
+      const note = str(body?.note, 300) || "Удалён администратором площадки.";
+      if (block && !u.blocked) await banUser(ctx, target, note);
+      for (const l of await ctx.store.listListings({ ownerId: target })) {
+        await dropBookings(ctx, l.id, t);
+        await ctx.store.purgeListing(l.id);
+      }
+      const today = todaySamara(t);
+      for (const b of await ctx.store.listBookings({ guestId: target, status: ["requested", "confirmed"] }))
+        if (b.status === "requested" || b.checkOut > today) await cancel(ctx, b, "guest");
+      await ctx.store.saveStaff((await ctx.store.getStaff()).filter((m) => m.id !== target));
+      await ctx.store.saveUser({ id: target, name: null, phone: block ? u.phone : null, consentAt: null, createdAt: u.createdAt, blocked: block, deletedAt: t });
+      await audit(ctx, uid, block ? "заблокировал и удалил человека" : "удалил человека", `${u.name ?? "без имени"} (${target})`, block ? note : undefined);
+      return ok({ ok: true });
+    }
+
     case "/admin/staff": {
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const staff = await ctx.store.getStaff();
@@ -1221,10 +1262,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const l = await ctx.store.getListing(str(body?.id, 16));
       if (!l || l.status === "deleted") return fail(404, "not found");
-      for (const b of await ctx.store.listBookings({ listingId: l.id, status: ["requested", "confirmed"] })) {
-        if (b.status === "requested") await decide(ctx, b, false);
-        else if (b.checkOut > todaySamara(t)) await cancel(ctx, b, "owner");
-      }
+      await dropBookings(ctx, l.id, t);
       l.status = "deleted";
       l.moderatorNote = str(body?.note, 300) || "Удалено администратором площадки.";
       l.updatedAt = t;
@@ -1235,11 +1273,13 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     }
 
     case "/admin/listing/purge": {
-      // Стереть насовсем уже удалённое объявление (только главный). Активное сначала удаляют обычным способом
+      // Стереть насовсем удалённое или снятое модератором объявление (только главный). Активное сначала удаляют обычным способом
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
       const l = await ctx.store.getListing(str(body?.id, 16));
       if (!l) return fail(404, "not found");
-      if (l.status !== "deleted") return fail(400, "bad status");
+      if (l.status !== "deleted" && l.status !== "blocked") return fail(400, "bad status");
+      // У снятого могли остаться брони: ждущие отклоняем, будущие подтверждённые отменяем с сообщением гостю
+      if (l.status === "blocked") await dropBookings(ctx, l.id, t);
       await ctx.store.purgeListing(l.id);
       await audit(ctx, uid, "стёр объявление насовсем", `${listingTitle(l)}, ${l.locality} (${l.id})`);
       return ok({ ok: true });
@@ -1402,6 +1442,14 @@ async function addReview(ctx: Ctx, b: Booking, stars: number, text: string): Pro
   l.rating = { sum: (l.rating?.sum ?? 0) + stars, count: (l.rating?.count ?? 0) + 1 };
   await ctx.store.saveListing(l);
   return true;
+}
+
+/** Брони объявления перед удалением: ждущие ответа — отклонить, будущие подтверждённые — отменить (гостю сообщение) */
+async function dropBookings(ctx: Ctx, listingId: string, t: number) {
+  for (const b of await ctx.store.listBookings({ listingId, status: ["requested", "confirmed"] })) {
+    if (b.status === "requested") await decide(ctx, b, false);
+    else if (b.checkOut > todaySamara(t)) await cancel(ctx, b, "owner");
+  }
 }
 
 /** Заблокировать человека (обман): его объявления снимаются, его запросы на бронь отменяются */
