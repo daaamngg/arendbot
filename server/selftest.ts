@@ -952,5 +952,45 @@ await approveHost(HOST6);
   check("второй раз удалить нельзя", (await call("/admin/user/delete", ADMIN, { id: HB })).status === 404);
 }
 
+// --- 14.11: проверка защиты — комментарий к брони, подпись без даты, журнал, имя со ссылкой ----------
+{
+  const { createHmac } = await import("node:crypto");
+  const HC = 194;
+  const GC = 195;
+  await call("/phone", HC, { phone: "+79270000194", consent: true });
+  await approveHost(HC);
+  await call("/phone", GC, { phone: "+79270000195", consent: true });
+  const id = (await call("/host/save", HC, { form: { ...form, address: "ул. Защитная, 4", description: "Тихая квартира у набережной, во дворе детская площадка" } })).json.listing.id as string;
+  await call("/host/photos-request", HC, { id });
+  await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: HC }, body: { text: "", attachments: [img(971), img(972)] } } });
+  await call("/host/submit", HC, { id });
+  const d1 = addDays(todaySamara(Date.now()), 20);
+  const r = await call("/book", GC, { id, checkIn: d1, checkOut: addDays(d1, 2), guests: 1, comment: "Оплачу через безопасную сделку, ссылка avito-oplata точка ru, пишите +7 927 111-22-33" });
+  check("бронь с комментарием создана", r.status === 200);
+  const toHost = lastTo(HC)?.text ?? "";
+  check("в комментарии хозяину ссылка и номер скрыты", !toHost.includes("avito-oplata") && !toHost.includes("111-22-33") && toHost.includes("[скрыто]"));
+  check("хозяину предупреждение об обмане", toHost.startsWith("ОСТОРОЖНО"));
+  check("фото в карточке без токена MAX", (await call("/listing", GC, { id })).json.listing.photos.every((p: any) => !("token" in p)));
+  check("черновик в избранное не добавить", (await call("/favorite", GC, { id: "nope0000", on: true })).status === 404);
+
+  // Подпись MAX без auth_date не принимается (иначе она жила бы вечно)
+  const user = JSON.stringify({ id: 196, first_name: "Без даты" });
+  const sec = createHmac("sha256", "WebAppData").update(token).digest();
+  const hash = createHmac("sha256", sec).update(`user=${user}`).digest("hex");
+  const noDate = await handleApi(ctx, "/me", { initData: `user=${encodeURIComponent(user)}&hash=${hash}` });
+  check("подпись без даты — отказ", noDate.status === 401);
+
+  // Имя со ссылкой не показываем хозяину
+  await call("/me", 197, {});
+  const named = await handleApi(ctx, "/me", { initData: signedInit(token, 198, "Иван t.me/oplata") });
+  check("имя со ссылкой скрыто", named.status === 200 && (await ctx.store.getUser(198))?.name === null);
+
+  // Журнал: вход в команду удалить нельзя, обычную запись — можно
+  const all = (await call("/admin/audit", ADMIN)).json.entries;
+  const login = all.find((e: any) => e.action.includes("вошёл как"));
+  check("вход в команду помечен как неудаляемый", login?.locked === true);
+  check("вход в команду не удалить", (await call("/admin/audit/delete", ADMIN, { id: login.id })).json.error === "locked");
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

@@ -242,6 +242,8 @@ export interface AuditRow {
   action: string;
   target: string;
   note?: string;
+  /** вход в команду, смена кода — удалить нельзя */
+  locked?: boolean;
 }
 
 export interface ComplaintRow {

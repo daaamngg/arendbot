@@ -86,4 +86,4 @@ export const isRisky = (s: string) => RISKY.test(s);
 
 /** Имя «под площадку» (Поддержка, Администрация, Служба безопасности) — так мошенник выдаёт себя за нас */
 const FAKE_OFFICIAL = /поддержк|админ|модератор|служб[аыу]|безопасност|support|admin|посуточн|\bбот\b|оператор/i;
-export const safeName = (name: string | null) => (name && FAKE_OFFICIAL.test(name) ? null : name);
+export const safeName = (name: string | null) => (name && (FAKE_OFFICIAL.test(name) || hasContacts(name)) ? null : name);

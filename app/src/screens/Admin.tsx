@@ -592,9 +592,11 @@ function Log() {
             {e.note && <div className="text-dim">«{e.note}»</div>}
             <div className="mt-0.5 text-[12px] text-dim">{when(e.at)}</div>
           </div>
-          <button className="grid size-9 shrink-0 place-items-center rounded-full text-dim active:bg-surface-2" aria-label="Удалить запись" onClick={() => remove(e)}>
-            <Trash2 size={17} />
-          </button>
+          {!e.locked && (
+            <button className="grid size-9 shrink-0 place-items-center rounded-full text-dim active:bg-surface-2" aria-label="Удалить запись" onClick={() => remove(e)}>
+              <Trash2 size={17} />
+            </button>
+          )}
         </li>
       ))}
     </ul>

@@ -288,6 +288,7 @@ function publicListing(l: Listing, bookings: Booking[], reviews: Review[], favor
   const busy = [...busyNights(l, bookings)].filter((d) => d >= from && d < to).sort();
   return {
     ...rest,
+    photos: l.photos.map((p) => ({ url: p.url, ...(p.w ? { w: p.w, h: p.h } : {}) })),
     title: listingTitle(l),
     busy,
     stars: starsOf(l),
@@ -344,6 +345,9 @@ function jpegSize(b: Buffer): { w?: number; h?: number } {
   }
   return {};
 }
+
+/** Записи журнала, которые нельзя удалить: входы в команду, снятие из команды, смена кода */
+const LOCKED_AUDIT = /вошёл как|снял главного|снял модератора|сменил код|заблокировал и удалил|удалил человека/;
 
 /** «Кто сделал» в журнале для решений автопроверки */
 const BOT_ID = 0;
@@ -822,7 +826,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/favorite": {
       const l = await ctx.store.getListing(str(body?.id, 16));
-      if (!l) return fail(404, "not found");
+      if (!l || (body?.on === true && l.status !== "active")) return fail(404, "not found");
       const set = new Set(user.favorites ?? []);
       const was = set.has(l.id);
       if (body?.on === true) set.add(l.id);
@@ -902,7 +906,9 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         guests,
         nights: p.nights,
         total: p.total,
-        comment: str(body?.comment, 500),
+        // Комментарий уходит хозяину в чат MAX, где ссылки кликабельны: прячем контакты, как в переписке.
+        // Частая схема — «гость» шлёт хозяину ссылку на «безопасную сделку» и выманивает данные карты
+        comment: maskContacts(str(body?.comment, 500)).text,
         status: "requested",
         createdAt: t,
         decideBy: decideDeadline(t, ctx.config.decideHours),
@@ -1379,7 +1385,11 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
     case "/admin/audit/delete": {
       // Удалить одну запись истории — только главный
       if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
-      return (await ctx.store.deleteAudit(str(body?.id, 64))) ? ok({ ok: true }) : fail(404, "not found");
+      const id = str(body?.id, 64);
+      const e = (await ctx.store.listAudit(2000)).find((x) => x.id === id);
+      if (!e) return fail(404, "not found");
+      if (LOCKED_AUDIT.test(e.action)) return fail(400, "locked");
+      return (await ctx.store.deleteAudit(id)) ? ok({ ok: true }) : fail(404, "not found");
     }
 
     case "/admin/audit": {
@@ -1387,7 +1397,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const entries = await ctx.store.listAudit(100);
       const names = new Map<number, string>();
       for (const e of entries) if (!names.has(e.by)) names.set(e.by, e.by === BOT_ID ? "Бот" : ((await ctx.store.getUser(e.by))?.name ?? String(e.by)));
-      return ok({ entries: entries.map((e) => ({ ...e, byName: names.get(e.by) })) });
+      return ok({ entries: entries.map((e) => ({ ...e, byName: names.get(e.by), locked: LOCKED_AUDIT.test(e.action) })) });
     }
   }
   return fail(404, "unknown");

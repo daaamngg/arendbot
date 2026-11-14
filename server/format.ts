@@ -17,6 +17,7 @@ const where = (l: Listing) => [l.locality, l.district].filter(Boolean).join(", "
 export function requestToOwner(b: Booking, l: Listing): OutMessage {
   return {
     text: [
+      ...(b.comment && isRisky(b.comment) ? ["ОСТОРОЖНО, комментарий гостя похож на обман. Не переходите по ссылкам и не называйте данные карты и коды из СМС.", ""] : []),
       "Запрос на бронь",
       `${listingTitle(l)}, ${where(l)}`,
       "",

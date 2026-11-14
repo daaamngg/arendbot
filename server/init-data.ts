@@ -52,7 +52,8 @@ export function verifyInitData(initData: string, botToken: string, now = Date.no
 
   const params = Object.fromEntries(kv);
   const authDate = Number(params.auth_date) || 0;
-  if (authDate && now / 1000 - authDate > MAX_AGE_SEC) return null;
+  // Без даты подписи не пускаем: такую подпись можно было бы использовать бесконечно
+  if (!authDate || now / 1000 - authDate > MAX_AGE_SEC) return null;
 
   let user: MaxInitUser | null = null;
   try {
