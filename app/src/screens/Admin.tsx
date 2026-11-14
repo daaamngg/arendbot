@@ -18,7 +18,7 @@ const SECTIONS: { id: Section; title: string; icon: typeof Flag; owner?: boolean
   { id: "apps", title: "Заявки", icon: UserPlus },
   { id: "complaints", title: "Жалобы", icon: Flag },
   { id: "bookings", title: "Брони", icon: CalendarDays, owner: true },
-  { id: "listings", title: "Жильё", icon: Home, owner: true },
+  { id: "listings", title: "Объявления", icon: Home, owner: true },
   { id: "people", title: "Люди", icon: Users, owner: true },
   { id: "team", title: "Команда", icon: UserCog, owner: true },
   { id: "log", title: "История", icon: History, owner: true },
@@ -91,7 +91,7 @@ export function AdminScreen(props: { owner: boolean; onOpen: (listingId: string)
                 setSection(s.id);
                 setMsg(null);
               }}
-              className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-1 pt-3 pb-2.5 text-[12px] font-semibold transition-colors ${
+              className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-1 pt-3 pb-2.5 text-[11px] font-semibold tracking-[-0.01em] transition-colors ${
                 on ? "border-accent bg-accent text-white" : "border-line bg-surface text-ink active:bg-surface-2"
               }`}
             >
@@ -476,16 +476,8 @@ function People(props: { act: Act }) {
                         const who = u.name ?? "человека";
                         const sure = await ask(`Удалить ${who}?`, { text: "Его объявления сотрутся насовсем, брони и запросы отменятся. Вернуть будет нельзя.", ok: "Удалить", danger: true });
                         if (!sure) return;
-                        // Заблокированный удаляется с блокировкой; остальных — спросить, блокировать ли
-                        const block =
-                          u.blocked ||
-                          (await ask("Заодно заблокировать?", {
-                            text: "Тогда он не сможет снова зайти в бот и сдавать. Номер останется в базе, чтобы бот узнал его с другого аккаунта.",
-                            ok: "Заблокировать и удалить",
-                            cancel: "Только удалить",
-                            danger: true,
-                          }));
-                        props.act(() => api.adminDeleteUser(u.id, block), block ? "Заблокирован и удалён." : "Удалён.", load);
+                        // Удаление — одним вопросом. Заблокировать — отдельной кнопкой рядом. Заблокированный остаётся заблокированным
+                        props.act(() => api.adminDeleteUser(u.id, !!u.blocked), "Удалён.", load);
                       }}
                     >
                       <Trash2 size={14} aria-hidden /> Удалить
