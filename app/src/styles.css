@@ -19,6 +19,9 @@
   --color-ok: #2f6b3a;
   --color-warn: #8a5a12;
   --color-bad: #9a3324;
+  /* Второй, тёплый акцент: «новое», звёзды, быстрые подборки. Синий остаётся главным (кнопки, выбор) */
+  --color-warm: #d9801c;
+  --color-warm-soft: #fbefdf;
   --font-sans: "Onest", system-ui, sans-serif;
 }
 
@@ -152,5 +155,38 @@
     background:
       linear-gradient(to top right, transparent calc(50% - 1px), var(--color-dim) calc(50% - 0.5px), var(--color-dim) calc(50% + 0.5px), transparent calc(50% + 1px)),
       var(--color-surface-2);
+  }
+}
+
+/* Экраны появляются мягко, без рывка. Кто отключил анимации в телефоне — без неё */
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@layer components {
+  .screen-in {
+    animation: screen-in 0.22s ease-out both;
+  }
+  /* Заготовка карточки, пока грузится: серый блок мягко «дышит» вместо крутилки */
+  .skeleton {
+    background: var(--color-surface-2);
+    animation: skeleton 1.2s ease-in-out infinite;
+  }
+}
+@keyframes skeleton {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-in,
+  .skeleton {
+    animation: none;
   }
 }

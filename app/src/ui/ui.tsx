@@ -349,3 +349,34 @@ export function Cover(props: { src: string; alt?: string; className?: string; la
     </div>
   );
 }
+
+/** Пустой экран: значок в кружке, коротко что здесь будет и кнопка «что сделать» */
+export function EmptyState(props: { icon: ReactNode; title: string; text?: string; action?: { label: string; onClick: () => void } }) {
+  return (
+    <div className="card flex flex-col items-center px-5 py-7 text-center">
+      <div className="grid size-14 place-items-center rounded-full bg-warm-soft text-warm">{props.icon}</div>
+      <p className="mt-3 font-semibold text-ink">{props.title}</p>
+      {props.text && <p className="mt-1 max-w-[280px] text-[14px] text-dim">{props.text}</p>}
+      {props.action && (
+        <button className="btn btn-main mt-4 px-6" onClick={props.action.onClick}>
+          {props.action.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Заготовки карточек поиска, пока идёт загрузка */
+export function CardSkeletons(props: { count?: number }) {
+  return (
+    <ul className="space-y-4" aria-label="Загружаем">
+      {Array.from({ length: props.count ?? 2 }, (_, i) => (
+        <li key={i}>
+          <div className="skeleton aspect-[4/3] rounded-2xl" />
+          <div className="skeleton mt-2.5 h-4 w-3/5 rounded" />
+          <div className="skeleton mt-2 h-3 w-4/5 rounded" />
+        </li>
+      ))}
+    </ul>
+  );
+}

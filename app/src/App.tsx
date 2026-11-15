@@ -144,7 +144,7 @@ export default function App() {
   } else if (tab === "search") {
     content = <SearchScreen me={me} query={query} onQuery={setQuery} onOpen={openListing} />;
   } else if (tab === "trips") {
-    content = <TripsScreen onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} onSupport={() => push({ name: "support" })} isOwner={me.owner} />;
+    content = <TripsScreen onFind={() => setTab("search")} onOpen={openListing} onChat={(id) => push({ name: "chat", id })} unread={me.unread} onSupport={() => push({ name: "support" })} isOwner={me.owner} />;
   } else if (tab === "host") {
     content = <HostHome me={me} onPhone={onPhone} onEdit={(id) => push({ name: "edit", id })} onCalendar={(id) => push({ name: "calendar", id })} />;
   } else if (tab === "admin" && me.admin) {
@@ -182,7 +182,9 @@ export default function App() {
           Это старая демо-версия, данные здесь стираются. Проверяйте в настоящем боте в MAX →
         </a>
       )}
-      {content}
+      <div key={top ? `${top.name}:${"id" in top ? top.id : ""}` : tab} className="screen-in">
+        {content}
+      </div>
       <DialogHost />
     </Shell>
   );

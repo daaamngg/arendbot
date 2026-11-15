@@ -8,7 +8,7 @@ import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
 import { api, errorText, type BookingView, type HostListingRow, type Me } from "../lib/api.ts";
 import { haptic } from "../lib/max.ts";
-import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
+import { Badge, CityPicker, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText, EmptyState } from "../ui/ui.tsx";
 
 // --- Главная хозяина: запросы на бронь сверху, ниже объявления ----------------------------
 
@@ -128,7 +128,11 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
       )}
 
       <h2 className="mb-2 text-[17px] font-bold text-ink">Мои объявления</h2>
-      {rows.length === 0 && <p className="mb-3 text-[15px] text-dim">Пока нет объявлений. Добавьте первое, это займёт минут десять.</p>}
+      {rows.length === 0 && (
+        <div className="mb-3">
+          <EmptyState icon={<Home size={26} />} title="Объявлений пока нет" text="Добавьте первое: фото, адрес и цена — минут десять. Размещение бесплатное." />
+        </div>
+      )}
       <ul className="space-y-3">
         {rows.map((r) => (
           <li key={r.id} className="card p-3">

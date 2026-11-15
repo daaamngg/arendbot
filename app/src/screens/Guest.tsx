@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BedDouble, CalendarDays, ChevronDown, LoaderCircle, Flag, Heart, Home, MapPin, MessageCircle, Phone, Share, SlidersHorizontal, Star, Users } from "lucide-react";
+import { AirVent, BedDouble, CalendarDays, Car, Check, ChevronDown, Flag, Heart, Home, LoaderCircle, MapPin, MessageCircle, PawPrint, Phone, SearchX, Share, SlidersHorizontal, Star, Users, Wallet, WashingMachine, Wifi } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { depositLabel } from "../../../shared/catalog.ts";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
@@ -8,17 +8,48 @@ import { api, errorText, type BookingView, type Me, type SearchQuery } from "../
 import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
 import { haptic } from "../lib/max.ts";
-import { Badge, CityPicker, Cover, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText } from "../ui/ui.tsx";
+import { Badge, CityPicker, Cover, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText, CardSkeletons, EmptyState } from "../ui/ui.tsx";
 
 // --- Поиск --------------------------------------------------------------------------
 
 const QUICK_AMENITIES = ["Wi-Fi", "Парковка", "Кондиционер", "Стиральная машина"];
+
+/** Удобства, которые видно значками прямо на карточке поиска (не больше трёх) */
+const CARD_AMENITIES: [string, typeof Wifi, string][] = [
+  ["Wi-Fi", Wifi, "Wi-Fi"],
+  ["Парковка", Car, "парковка"],
+  ["Кондиционер", AirVent, "кондиционер"],
+  ["Стиральная машина", WashingMachine, "стиралка"],
+];
+
+/** Ближайшие выходные: пятница → воскресенье (в пятницу и субботу — эти же) */
+function weekend(today: string) {
+  const wd = new Date(`${today}T12:00:00Z`).getUTCDay();
+  const toFri = wd === 6 ? -1 : (5 - wd + 7) % 7;
+  const fri = addDays(today, toFri);
+  return { checkIn: fri < today ? today : fri, checkOut: addDays(fri, 2) };
+}
+
+/** Быстрые подборки над результатами */
+const QUICK: { id: string; title: string; icon: typeof Wifi; on: (q: SearchQuery) => boolean; apply: (q: SearchQuery, today: string) => Partial<SearchQuery>; off: (q: SearchQuery) => Partial<SearchQuery> }[] = [
+  {
+    id: "weekend",
+    title: "На выходные",
+    icon: CalendarDays,
+    on: (q) => !!q.checkIn && new Date(`${q.checkIn}T12:00:00Z`).getUTCDay() === 5 && q.checkOut === addDays(q.checkIn, 2),
+    apply: (_q, today) => weekend(today),
+    off: () => ({ checkIn: undefined, checkOut: undefined }),
+  },
+  { id: "pets", title: "С животными", icon: PawPrint, on: (q) => !!q.pets, apply: () => ({ pets: true }), off: () => ({ pets: undefined }) },
+  { id: "company", title: "Для компании", icon: Users, on: (q) => (q.guests ?? 1) >= 4, apply: () => ({ guests: 4 }), off: () => ({ guests: 1 }) },
+  { id: "cheap", title: "До 2 500 ₽", icon: Wallet, on: (q) => q.priceMax === 2500, apply: () => ({ priceMax: 2500, sort: "price" }), off: () => ({ priceMax: undefined }) },
+];
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
 export function Stars(props: { value: number; count: number }) {
   return (
     <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-      <Star size={13} className="fill-current text-[#c08a1e]" aria-hidden />
+      <Star size={13} className="fill-current text-warm" aria-hidden />
       {props.value.toFixed(1).replace(".", ",")}
       <span className="font-normal text-dim">({props.count})</span>
     </span>
@@ -59,6 +90,7 @@ const cancelText = (days: number = 0) =>
 export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: SearchQuery) => void; onOpen: (id: string) => void }) {
   const q = props.query;
   const [cards, setCards] = useState<ListingCard[] | null>(null);
+  const [cities, setCities] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const today = todaySamara();
 
@@ -68,7 +100,11 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
     setError(null);
     api
       .search(q)
-      .then((r) => alive && setCards(r.cards))
+      .then((r) => {
+        if (!alive) return;
+        setCards(r.cards);
+        setCities(r.cities ?? {});
+      })
       .catch(() => alive && setError("Не получилось загрузить. Проверьте интернет."));
     return () => {
       alive = false;
@@ -84,7 +120,20 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
     <>
       {/* Компактный поиск: одна карточка строками «Где / Когда / Гостей», поля без своих рамок.
           Фильтры — отдельной кнопкой рядом, раскрываются под карточкой */}
-      <h1 className="mb-3 text-[22px] leading-tight font-bold tracking-[-0.01em] text-ink">Квартиры посуточно</h1>
+      {/* Шапка: о чём площадка и почему ей можно доверять — коротко, без рекламы */}
+      <section className="mb-3 rounded-2xl bg-accent px-4 pt-4 pb-3.5 text-white">
+        <h1 className="text-[22px] leading-tight font-bold tracking-[-0.01em]">
+          Квартиры посуточно <span className="text-[#ffc477]">в&nbsp;Самаре и&nbsp;области</span>
+        </h1>
+        <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-white/85">
+          {["Хозяин подтверждает бронь", "Без предоплаты на карту", "Отзывы только от гостей"].map((t) => (
+            <li key={t} className="flex items-center gap-1.5">
+              <Check size={14} className="text-[#ffc477]" aria-hidden />
+              {t}
+            </li>
+          ))}
+        </ul>
+      </section>
       <section className="card divide-y divide-line">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <MapPin size={18} className="shrink-0 text-dim" aria-hidden />
@@ -110,6 +159,31 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
           </div>
         </div>
       </section>
+
+      {/* Быстрые подборки: одно нажатие вместо фильтров. Нажал ещё раз — снял */}
+      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none]">
+        {QUICK.map((p) => {
+          const on = p.on(q);
+          const Icon = p.icon;
+          return (
+            <button key={p.id} className="chip shrink-0 gap-1.5" aria-pressed={on} onClick={() => set(on ? p.off(q) : p.apply(q, today))}>
+              <Icon size={15} className={on ? "" : "text-warm"} aria-hidden /> {p.title}
+            </button>
+          );
+        })}
+      </div>
+      {/* Города, где есть жильё, — со счётом; нажал — ищем там */}
+      {Object.keys(cities).length > 1 && (
+        <div className="-mx-4 mt-2.5 flex gap-x-4 overflow-x-auto px-4 text-[14px] [scrollbar-width:none]">
+          {Object.entries(cities)
+            .sort((a, b) => b[1] - a[1])
+            .map(([city, n]) => (
+              <button key={city} className={`shrink-0 py-1 ${q.locality === city ? "font-semibold text-accent" : "text-ink"}`} onClick={() => set({ locality: q.locality === city ? undefined : city })}>
+                {city} <span className="text-dim tabular-nums">{n}</span>
+              </button>
+            ))}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <button className={`chip gap-1.5 ${activeFilters ? "!border-accent !text-accent" : ""}`} onClick={() => setFilters(!filters)} aria-expanded={filters}>
@@ -156,12 +230,14 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
 
       <div className="mt-4 mb-2 text-[13px] text-dim">{cards ? `Найдено: ${cards.length}${nights ? ` · цены за ${nightsText(nights)}` : ""}` : " "}</div>
       {error && <p className="text-bad">{error}</p>}
-      {!cards && !error && <Spinner />}
+      {!cards && !error && <CardSkeletons />}
       {cards?.length === 0 && (
-        <div className="card p-5 text-center">
-          <p className="font-semibold text-ink">Пока ничего не нашлось</p>
-          <p className="mt-1 text-[14px] text-dim">Попробуйте другие даты или весь регион.</p>
-        </div>
+        <EmptyState
+          icon={<SearchX size={26} />}
+          title="Пока ничего не нашлось"
+          text="Попробуйте другие даты, меньше фильтров или весь регион."
+          action={{ label: "Сбросить поиск", onClick: () => props.onQuery({ guests: 1 }) }}
+        />
       )}
       {/* Карточка «сначала фото»: в посуточной аренде выбирают глазами. Цена — плашкой на фото, чтобы читалась сразу */}
       <ul className="space-y-4">
@@ -176,6 +252,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
                     <Home size={28} />
                   </div>
                 )}
+                {c.isNew && !c.stars && <span className="absolute top-2.5 left-2.5 rounded-full bg-warm px-2.5 py-0.5 text-[12px] font-semibold text-white">Новое</span>}
                 <span className="absolute bottom-2.5 left-2.5 rounded-lg bg-surface px-2.5 py-1 text-[15px] font-bold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] tabular-nums">
                   {c.total != null ? rub(c.total) : `от ${rub(c.priceFrom)}`}
                   <span className="ml-1 text-[12px] font-medium text-dim">{c.total != null ? `за ${nightsText(c.nights!)}` : "ночь"}</span>
@@ -184,11 +261,31 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
               <div className="mt-2 flex items-start justify-between gap-3 px-0.5">
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-ink">{c.title}</div>
-                  <div className="truncate text-[13px] text-dim">
-                    {[c.locality, c.address].filter(Boolean).join(", ")} · {guestsUpTo(c.guests)}
-                  </div>
+                  <div className="truncate text-[13px] text-dim">{[c.locality, c.district, c.address].filter(Boolean).join(", ")}</div>
                 </div>
-                <div className="shrink-0 pt-0.5 text-[13px]">{c.stars != null ? <Stars value={c.stars} count={c.reviews} /> : c.isNew ? <span className="text-dim">новое</span> : null}</div>
+                {c.stars != null && (
+                  <div className="shrink-0 pt-0.5 text-[13px]">
+                    <Stars value={c.stars} count={c.reviews} />
+                  </div>
+                )}
+              </div>
+              {/* Главное о жилье значками: сколько гостей и что есть */}
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 px-0.5 text-[13px] text-text">
+                <span className="flex items-center gap-1">
+                  <Users size={14} className="text-dim" aria-hidden />
+                  {guestsUpTo(c.guests)}
+                </span>
+                {CARD_AMENITIES.filter(([a]) => c.amenities?.includes(a)).slice(0, c.pets ? 1 : 2).map(([a, Icon, short]) => (
+                  <span key={a} className="flex items-center gap-1">
+                    <Icon size={14} className="text-dim" aria-hidden />
+                    {short}
+                  </span>
+                ))}
+                {c.pets && (
+                  <span className="flex items-center gap-1">
+                    <PawPrint size={14} className="text-dim" aria-hidden />с животными
+                  </span>
+                )}
               </div>
             </button>
           </li>
@@ -254,7 +351,15 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
   }, [l, checkIn, checkOut, busySet]);
 
   if (error && !l) return <p className="text-bad">{error}</p>;
-  if (!l) return <Spinner />;
+  if (!l)
+    return (
+      <div aria-label="Загружаем">
+        <div className="skeleton -mx-4 -mt-4 aspect-[4/3]" />
+        <div className="skeleton mt-4 h-6 w-3/5 rounded" />
+        <div className="skeleton mt-3 h-5 w-2/5 rounded" />
+        <div className="skeleton mt-5 h-24 rounded-2xl" />
+      </div>
+    );
 
   if (done) {
     return (
@@ -442,7 +547,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
                 <li key={r.id} className="text-[14px]">
                   <div className="flex items-center justify-between">
                     <b className="text-ink">{r.guestName ?? "Гость"}</b>
-                    <span className="text-[#c08a1e]" aria-label={`Оценка ${r.stars} из 5`}>
+                    <span className="text-warm" aria-label={`Оценка ${r.stars} из 5`}>
                       {"★".repeat(r.stars)}
                       <span className="text-line">{"★".repeat(5 - r.stars)}</span>
                     </span>
@@ -576,7 +681,7 @@ function ReviewForm(props: { bookingId: string; onDone: () => void }) {
       <div className="mt-1 flex gap-1" role="radiogroup" aria-label="Оценка">
         {[1, 2, 3, 4, 5].map((n) => (
           <button key={n} role="radio" aria-checked={stars === n} aria-label={`${n} из 5`} className="grid size-10 place-items-center" onClick={() => setStars(n)}>
-            <Star size={26} className={n <= stars ? "fill-current text-[#c08a1e]" : "text-dim"} />
+            <Star size={26} className={n <= stars ? "fill-current text-warm" : "text-dim"} />
           </button>
         ))}
       </div>
@@ -654,7 +759,7 @@ type MineTab = "trips" | "chats" | "favs";
  * «Моё»: три вкладки вместо длинной ленты — брони, сообщения, избранное. Брони делятся на предстоящие
  * и прошлые; у каждой маленькое фото слева, детали подтверждённой — в одной плашке
  */
-export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number; onSupport: () => void; isOwner?: boolean }) {
+export function TripsScreen(props: { onFind: () => void; onOpen: (id: string) => void; onChat: (threadId: string) => void; unread?: number; onSupport: () => void; isOwner?: boolean }) {
   const [tab, setTab] = useState<MineTab>(props.unread ? "chats" : "trips");
   const [list, setList] = useState<BookingView[] | null>(null);
   const [favs, setFavs] = useState<ListingCard[]>([]);
@@ -786,7 +891,7 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
         ) : (
           <>
             {upcoming.length === 0 ? (
-              <div className="card p-5 text-center text-[14px] text-dim">Предстоящих броней нет. Найдите жильё во вкладке «Поиск».</div>
+              <EmptyState icon={<CalendarDays size={26} />} title="Броней пока нет" text="Выберите жильё и даты — запрос уйдёт хозяину, ответ придёт сюда и в чат." action={{ label: "Найти жильё", onClick: props.onFind }} />
             ) : (
               <ul className="card divide-y divide-line">{upcoming.map(row)}</ul>
             )}
@@ -806,9 +911,7 @@ export function TripsScreen(props: { onOpen: (id: string) => void; onChat: (thre
 
       {tab === "favs" &&
         (favs.length === 0 ? (
-          <div className="card p-5 text-center text-[14px] text-dim">
-            Нажмите <Heart size={15} className="mx-0.5 inline -translate-y-px text-bad" aria-label="значок избранного" /> в объявлении, и оно появится здесь.
-          </div>
+          <EmptyState icon={<Heart size={26} />} title="Избранное пусто" text="Нажмите сердечко в объявлении, и оно сохранится здесь." action={{ label: "Смотреть жильё", onClick: props.onFind }} />
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {favs.map((c) => (

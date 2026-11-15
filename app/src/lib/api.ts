@@ -280,7 +280,7 @@ export const api = {
   me: () => post<Me>("/me"),
   // contact — то, что вернуло окно MAX «Поделиться номером» (с подписью): сервер проверит, что номер настоящий
   phone: (phone: string, contact?: unknown) => post<{ ok: true; verified: boolean }>("/phone", { phone, consent: true, ...(contact ? { contact } : {}) }),
-  search: (q: SearchQuery) => post<{ cards: ListingCard[] }>("/search", q),
+  search: (q: SearchQuery) => post<{ cards: ListingCard[]; cities: Record<string, number> }>("/search", q),
   listing: (id: string) => post<{ listing: PublicListing; own: boolean }>("/listing", { id }),
   deleteMe: () => post<{ ok: true }>("/me/delete"),
   supportSend: (text: string) => post<{ ticket: SupportTicket }>("/support/send", { text }),

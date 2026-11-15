@@ -271,6 +271,8 @@ function card(l: Listing, range?: { checkIn: string; checkOut: string }, t = Dat
   const p = range ? price(l, range.checkIn, range.checkOut) : null;
   return {
     isNew: !l.rating?.count && t - publishedOf(l) < NEW_DAYS * 86_400_000,
+    amenities: l.amenities,
+    pets: !!l.rules?.pets,
     stars: starsOf(l),
     reviews: l.rating?.count ?? 0,
     createdAt: l.createdAt,
@@ -665,7 +667,10 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
               ? y.publishedAt - x.publishedAt
               : (x.total ?? x.priceFrom) - (y.total ?? y.priceFrom),
         );
-      return ok({ cards });
+      // Сколько объявлений в каждом городе — строка городов над результатами (без учёта выбранного города)
+      const cities: Record<string, number> = {};
+      for (const l of listings) cities[l.locality] = (cities[l.locality] ?? 0) + 1;
+      return ok({ cards, cities });
     }
 
     case "/listing": {
@@ -1690,7 +1695,14 @@ export async function processUpdate(ctx: Ctx, update: any) {
       ? [...(appButton(ctx, "Найти жильё") ?? []), ...(appButton(ctx, "Сдать квартиру", "host") ?? [])]
       : undefined;
     await send(ctx, uid, {
-      text: "Здравствуйте! Здесь можно снять квартиру посуточно в Самаре и области или сдать свою. Размещение бесплатное.",
+      text: [
+        "Здравствуйте! Это площадка посуточной аренды в Самаре и области.",
+        "",
+        "Гостям: квартиры и дома с фото и ценами, бронь с подтверждением хозяина, контакты хозяина после подтверждения.",
+        "Хозяевам: размещение бесплатное, запросы на бронь приходят сюда.",
+        "",
+        "Что вам нужно?",
+      ].join("\n"),
       buttons,
     });
   };

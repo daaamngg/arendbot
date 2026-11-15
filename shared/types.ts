@@ -328,6 +328,9 @@ export interface User {
 export interface ListingCard {
   /** «новое»: опубликовано меньше NEW_DAYS дней назад и ещё нет оценок */
   isNew: boolean;
+  /** удобства — на карточке показываем значками самые важные */
+  amenities: string[];
+  pets: boolean;
   publishedAt: number;
   id: string;
   type: PlaceType;
