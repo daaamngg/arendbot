@@ -40,7 +40,7 @@ const QUICK: { id: string; title: string; icon: typeof Wifi; on: (q: SearchQuery
     apply: (_q, today) => weekend(today),
     off: () => ({ checkIn: undefined, checkOut: undefined }),
   },
-  { id: "pets", title: "Можно с животными", icon: PawPrint, on: (q) => !!q.pets, apply: () => ({ pets: true }), off: () => ({ pets: undefined }) },
+  { id: "pets", title: "С животными", icon: PawPrint, on: (q) => !!q.pets, apply: () => ({ pets: true }), off: () => ({ pets: undefined }) },
   { id: "company", title: "Для компании", icon: Users, on: (q) => (q.guests ?? 1) >= 4, apply: () => ({ guests: 4 }), off: () => ({ guests: 1 }) },
   { id: "cheap", title: "До 2 500 ₽", icon: Wallet, on: (q) => q.priceMax === 2500, apply: () => ({ priceMax: 2500, sort: "price" }), off: () => ({ priceMax: undefined }) },
 ];
@@ -165,8 +165,8 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
         </div>
       </section>
 
-      {/* Быстрые подборки плитками: одно нажатие вместо фильтров, всё видно сразу. Нажал ещё раз — снял */}
-      <div className="mt-3 grid grid-cols-4 gap-2">
+      {/* Быстрые подборки — плитки 2×2: значок слева, подпись в одну строку. Нажал ещё раз — снял */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
         {QUICK.map((p) => {
           const on = p.on(q);
           const Icon = p.icon;
@@ -175,14 +175,14 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
               key={p.id}
               aria-pressed={on}
               onClick={() => set(on ? p.off(q) : p.apply(q, today))}
-              className={`flex flex-col items-center gap-1.5 rounded-xl border px-0.5 pt-3 pb-2.5 text-center text-[11.5px] leading-tight font-semibold tracking-[-0.01em] transition-colors ${
+              className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[14px] leading-tight font-semibold transition-colors ${
                 on ? "border-accent bg-accent text-white" : "border-line bg-surface text-ink active:bg-surface-2"
               }`}
             >
-              <span className={`grid size-9 place-items-center rounded-full ${on ? "bg-white/15 text-white" : "bg-warm-soft text-warm"}`}>
-                <Icon size={18} aria-hidden />
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full ${on ? "bg-white/15 text-white" : "bg-warm-soft text-warm"}`}>
+                <Icon size={17} aria-hidden />
               </span>
-              {p.title}
+              <span className="min-w-0">{p.title}</span>
             </button>
           );
         })}
