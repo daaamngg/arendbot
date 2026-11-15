@@ -93,17 +93,27 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
   const [error, setError] = useState<string | null>(null);
   const today = todaySamara();
 
+  // Поиск после паузы в четверть секунды: «+ + +» у гостей — один запрос, а не три.
+  // Старый список остаётся на экране (чуть бледнее), пока не пришёл новый, — без мигания заготовками
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let alive = true;
-    setCards(null);
     setError(null);
-    api
-      .search(q)
-      .then((r) => alive && setCards(r.cards))
-      .catch(() => alive && setError("Не получилось загрузить. Проверьте интернет."));
+    setLoading(true);
+    const timer = setTimeout(
+      () =>
+        api
+          .search(q)
+          .then((r) => alive && setCards(r.cards))
+          .catch(() => alive && setError("Не получилось загрузить. Проверьте интернет."))
+          .finally(() => alive && setLoading(false)),
+      cards ? 250 : 0,
+    );
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   const set = (patch: Partial<SearchQuery>) => props.onQuery({ ...q, ...patch });
@@ -233,7 +243,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
         />
       )}
       {/* Карточка «сначала фото»: в посуточной аренде выбирают глазами. Цена — плашкой на фото, чтобы читалась сразу */}
-      <ul className="space-y-4">
+      <ul className={`space-y-4 transition-opacity ${loading && cards ? "opacity-60" : ""}`}>
         {cards?.map((c) => (
           <li key={c.id}>
             <button className="block w-full text-left" onClick={() => props.onOpen(c.id)}>

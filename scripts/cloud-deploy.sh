@@ -52,12 +52,12 @@ API_URL="$API_URL" node scripts/cloud-build.mjs
 YC="$YC" node scripts/cloud-upload-site.mjs "$BUCKET" "${YC_PROFILE:-arenda}" >/dev/null
 WEBHOOK_SECRET=$(env_of WEBHOOK_SECRET); [ -n "$WEBHOOK_SECRET" ] || { WEBHOOK_SECRET=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"); echo "WEBHOOK_SECRET=$WEBHOOK_SECRET" >> .env.local; }
 "$YC" $P serverless function version create --function-name arenda-api --runtime nodejs22 --entrypoint index.handler \
-  --memory 128m --execution-timeout 15s --source-path cloud-dist/function --service-account-id "$SA_FN" \
+  --memory 256m --execution-timeout 15s --source-path cloud-dist/function --service-account-id "$SA_FN" \
   --environment "MAX_BOT_TOKEN=$(env_of MAX_BOT_TOKEN),ADMIN_CODE=$(env_of ADMIN_CODE),MOD_CODE=$(env_of MOD_CODE),WEBHOOK_SECRET=$WEBHOOK_SECRET,BOT_USERNAME=$(env_of BOT_USERNAME),YDB_CONNECTION=$YDB_CONNECTION,YDB_METADATA_CREDENTIALS=1,APP_ORIGIN=$APP_ORIGIN,API_URL=$API_URL,PHOTO_BUCKET=$BUCKET" >/dev/null
 # Не больше 2 копий одновременно: даже при атаке запросами расход не взлетит
 "$YC" $P serverless function set-scaling-policy arenda-api --tag '$latest' --zone-instances-limit 2 >/dev/null 2>&1 || true
 "$YC" $P serverless trigger get arenda-sweep >/dev/null 2>&1 || "$YC" $P serverless trigger create timer --name arenda-sweep \
-  --cron-expression '0 */5 ? * * *' --invoke-function-name arenda-api --invoke-function-service-account-id "$SA_FN" >/dev/null
+  --cron-expression '0/1 * * * ? *' --invoke-function-name arenda-api --invoke-function-service-account-id "$SA_FN" >/dev/null
 
 # --- рубильник
 mkdir -p cloud-dist/stop

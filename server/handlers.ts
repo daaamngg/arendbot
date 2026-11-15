@@ -600,23 +600,26 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       return r ? ok(r) : fail(400, "bad code");
     }
 
-    case "/me":
+    case "/me": {
+      // Четыре запроса к базе — одновременно, а не по очереди: первый экран открывается быстрее
+      const [admin, owner, host, threads] = await Promise.all([isAdmin(ctx, uid), isOwner(ctx, uid), hostStatusOf(ctx, user), ctx.store.listThreads(uid)]);
       return ok({
         user: { id: uid, name: user.name, phone: user.phone, consent: user.consentAt != null },
-        admin: await isAdmin(ctx, uid),
+        admin,
         demo: !!ctx.config.demo || ctx.config.allowBrowser,
         bot: ctx.config.botUsername ?? null,
-        owner: await isOwner(ctx, uid),
-        host: await hostStatusOf(ctx, user),
+        owner,
+        host,
         hostNote: user.hostStatus === "rejected" ? (user.hostApp?.note ?? null) : null,
         // Бронировать нельзя после двух «не приехал» или поздних отмен
         bookingBanned: (user.strikes ?? 0) >= BOOKING_LIMITS.strikes,
         // Непрочитанные сообщения — для значка на вкладке «Моё»
-        unread: (await ctx.store.listThreads(uid)).reduce((s, th) => s + (th.ownerId === uid ? th.unreadOwner : th.unreadGuest), 0),
+        unread: threads.reduce((s, th) => s + (th.ownerId === uid ? th.unreadOwner : th.unreadGuest), 0),
         localities: LOCALITIES,
         districts: DISTRICTS,
         amenities: AMENITIES,
       });
+    }
 
     case "/phone": {
       // Номер из окна MAX «Поделиться номером» (или руками в браузере) + отдельное согласие (152-ФЗ)
@@ -672,11 +675,13 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/listing": {
       const l = await ctx.store.getListing(str(body?.id, 16));
+      if (!l || l.status === "deleted") return fail(404, "not found");
+      // Запросы к базе — одновременно: брони, отзывы и «команда ли это»
+      const [bookings, reviews, staff] = await Promise.all([ctx.store.listBookings({ listingId: l.id, status: HOLDING }), ctx.store.listReviews(l.id), isAdmin(ctx, uid)]);
       // Гость видит только опубликованное; хозяин и модератор — своё в любом статусе (предпросмотр)
-      if (!l || l.status === "deleted" || (l.status !== "active" && l.ownerId !== uid && !(await isAdmin(ctx, uid)))) return fail(404, "not found");
-      const [bookings, reviews] = await Promise.all([ctx.store.listBookings({ listingId: l.id, status: HOLDING }), ctx.store.listReviews(l.id)]);
-      // Просмотры: один человек — один просмотр в сутки; хозяин себя не накручивает
-      if (l.status === "active" && l.ownerId !== uid && !(await isAdmin(ctx, uid)) && !(await ctx.store.seenRecently(`view:${l.id}:${uid}:${todaySamara(t)}`, 26 * 3600_000))) await ctx.store.bumpStat(l.id, "views", 1);
+      if (l.status !== "active" && l.ownerId !== uid && !staff) return fail(404, "not found");
+      // Просмотры: один человек — один просмотр в сутки; хозяин и команда не накручивают
+      if (l.status === "active" && l.ownerId !== uid && !staff && !(await ctx.store.seenRecently(`view:${l.id}:${uid}:${todaySamara(t)}`, 26 * 3600_000))) await ctx.store.bumpStat(l.id, "views", 1);
       // Номер хозяина — только если он сам разрешил показывать его до брони
       // и не больше 30 раз в час на человека — чтобы номера хозяев не собирали пачкой
       const hostPhone = l.showPhone && l.ownerId !== uid && !limited(`hp:${uid}`, 30) ? ((await ctx.store.getUser(l.ownerId))?.phone ?? null) : null;
@@ -1491,7 +1496,17 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/admin/stats": {
       if (!(await isAdmin(ctx, uid))) return fail(403, "forbidden");
-      const [listings, bookings, people, complaints] = await Promise.all([ctx.store.listListings(), ctx.store.listBookings(), ctx.store.searchUsers("", 100_000), ctx.store.listComplaints({ open: true })]);
+      // Все запросы — одновременно (раньше половина шла по очереди)
+      const [listings, bookings, people, complaints, hosts, tickets, backup, reviewsToCheck] = await Promise.all([
+        ctx.store.listListings(),
+        ctx.store.listBookings(),
+        ctx.store.searchUsers("", 100_000),
+        ctx.store.listComplaints({ open: true }),
+        ctx.store.listHostApplicants("pending"),
+        ctx.store.kvList<SupportTicket>("ticket:"),
+        ctx.store.kvGet<{ day: string; rows: number }>("backup:last"),
+        ctx.store.listReviewsToCheck(),
+      ]);
       // Тестовые (проверка облака, демо — номера от 900 000 000) и удалённые в счёт не идут
       const users = people.filter((u) => !u.deletedAt && u.id < 900_000_000).length;
       const by = (arr: { status: string }[]) => arr.reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] ?? 0) + 1), acc), {});
@@ -1503,10 +1518,10 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
         bookingsWeek: bookings.filter((b) => b.createdAt > weekAgo).length,
         confirmedSum: bookings.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + b.total, 0),
         openComplaints: complaints.length,
-        pendingHosts: (await ctx.store.listHostApplicants("pending")).length,
-        openTickets: (await ctx.store.kvList<SupportTicket>("ticket:")).filter(([, x]) => !x.reply && !x.closed).length,
-        backup: (await ctx.store.kvGet<{ day: string; rows: number }>("backup:last")) ?? null,
-        toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length + (await ctx.store.listReviewsToCheck()).length,
+        pendingHosts: hosts.length,
+        openTickets: tickets.filter(([, x]) => !x.reply && !x.closed).length,
+        backup: backup ?? null,
+        toReview: listings.filter((l) => l.status === "pending" || (l.status === "active" && !l.checked)).length + reviewsToCheck.length,
       });
     }
 
@@ -1915,7 +1930,7 @@ const checkoutMoment = (b: Booking, l: Listing) => Date.parse(`${b.checkOut}T${l
 export const CHAT_WAKE_MS = 30 * 60_000;
 
 /**
- * Таймер раз в 5 минут: кто не прочитал сообщения в приложении за 30 минут, получает одно напоминание
+ * Таймер раз в минуту: кто не прочитал сообщения в приложении за 30 минут, получает одно напоминание
  * в личку MAX с последним сообщением (на него можно ответить прямо там)
  */
 export async function wakeUnread(ctx: Ctx, t: number) {

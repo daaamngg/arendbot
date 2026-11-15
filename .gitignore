@@ -1,13 +1,14 @@
 node_modules
 dist
+cloud-dist/
+server/.data
+.vercel
 .env*
 !.env.example
-server/.data
 *.log
+*.tmp
+.DS_Store
+Thumbs.db
+# тексты для клиента и сценарии звонков — не в репозиторий
 СООБЩЕНИЕ-*.txt
 ЗВОНОК-*.txt
-.vercel
-
-.vercel
-.env*
-cloud-dist/

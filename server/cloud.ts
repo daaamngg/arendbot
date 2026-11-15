@@ -99,7 +99,10 @@ export async function handler(event: HttpEvent, context?: { token?: { access_tok
   if (context?.token?.access_token) iamToken = context.token.access_token;
   // Таймер раз в минуту
   if (event.messages?.some((m) => m.event_metadata?.event_type?.includes("Timer"))) {
-    await sweep(await getCtx());
+    const ctx = await getCtx();
+    // Похожее на таймер событие можно прислать и снаружи — работу делаем не чаще раза в 50 секунд
+    if (await ctx.store.seenRecently("sweep-run", 50_000)) return { statusCode: 200, body: "ok" };
+    await sweep(ctx);
     return { statusCode: 200, body: "ok" };
   }
 
