@@ -40,7 +40,7 @@ const QUICK: { id: string; title: string; icon: typeof Wifi; on: (q: SearchQuery
     apply: (_q, today) => weekend(today),
     off: () => ({ checkIn: undefined, checkOut: undefined }),
   },
-  { id: "pets", title: "С животными", icon: PawPrint, on: (q) => !!q.pets, apply: () => ({ pets: true }), off: () => ({ pets: undefined }) },
+  { id: "pets", title: "Можно с животными", icon: PawPrint, on: (q) => !!q.pets, apply: () => ({ pets: true }), off: () => ({ pets: undefined }) },
   { id: "company", title: "Для компании", icon: Users, on: (q) => (q.guests ?? 1) >= 4, apply: () => ({ guests: 4 }), off: () => ({ guests: 1 }) },
   { id: "cheap", title: "До 2 500 ₽", icon: Wallet, on: (q) => q.priceMax === 2500, apply: () => ({ priceMax: 2500, sort: "price" }), off: () => ({ priceMax: undefined }) },
 ];
@@ -90,7 +90,6 @@ const cancelText = (days: number = 0) =>
 export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: SearchQuery) => void; onOpen: (id: string) => void }) {
   const q = props.query;
   const [cards, setCards] = useState<ListingCard[] | null>(null);
-  const [cities, setCities] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const today = todaySamara();
 
@@ -100,11 +99,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
     setError(null);
     api
       .search(q)
-      .then((r) => {
-        if (!alive) return;
-        setCards(r.cards);
-        setCities(r.cities ?? {});
-      })
+      .then((r) => alive && setCards(r.cards))
       .catch(() => alive && setError("Не получилось загрузить. Проверьте интернет."));
     return () => {
       alive = false;
@@ -160,30 +155,28 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
         </div>
       </section>
 
-      {/* Быстрые подборки: одно нажатие вместо фильтров. Нажал ещё раз — снял */}
-      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none]">
+      {/* Быстрые подборки плитками: одно нажатие вместо фильтров, всё видно сразу. Нажал ещё раз — снял */}
+      <div className="mt-3 grid grid-cols-4 gap-2">
         {QUICK.map((p) => {
           const on = p.on(q);
           const Icon = p.icon;
           return (
-            <button key={p.id} className="chip shrink-0 gap-1.5" aria-pressed={on} onClick={() => set(on ? p.off(q) : p.apply(q, today))}>
-              <Icon size={15} className={on ? "" : "text-warm"} aria-hidden /> {p.title}
+            <button
+              key={p.id}
+              aria-pressed={on}
+              onClick={() => set(on ? p.off(q) : p.apply(q, today))}
+              className={`flex flex-col items-center gap-1.5 rounded-xl border px-0.5 pt-3 pb-2.5 text-center text-[11.5px] leading-tight font-semibold tracking-[-0.01em] transition-colors ${
+                on ? "border-accent bg-accent text-white" : "border-line bg-surface text-ink active:bg-surface-2"
+              }`}
+            >
+              <span className={`grid size-9 place-items-center rounded-full ${on ? "bg-white/15 text-white" : "bg-warm-soft text-warm"}`}>
+                <Icon size={18} aria-hidden />
+              </span>
+              {p.title}
             </button>
           );
         })}
       </div>
-      {/* Города, где есть жильё, — со счётом; нажал — ищем там */}
-      {Object.keys(cities).length > 1 && (
-        <div className="-mx-4 mt-2.5 flex gap-x-4 overflow-x-auto px-4 text-[14px] [scrollbar-width:none]">
-          {Object.entries(cities)
-            .sort((a, b) => b[1] - a[1])
-            .map(([city, n]) => (
-              <button key={city} className={`shrink-0 py-1 ${q.locality === city ? "font-semibold text-accent" : "text-ink"}`} onClick={() => set({ locality: q.locality === city ? undefined : city })}>
-                {city} <span className="text-dim tabular-nums">{n}</span>
-              </button>
-            ))}
-        </div>
-      )}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <button className={`chip gap-1.5 ${activeFilters ? "!border-accent !text-accent" : ""}`} onClick={() => setFilters(!filters)} aria-expanded={filters}>

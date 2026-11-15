@@ -667,10 +667,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
               ? y.publishedAt - x.publishedAt
               : (x.total ?? x.priceFrom) - (y.total ?? y.priceFrom),
         );
-      // Сколько объявлений в каждом городе — строка городов над результатами (без учёта выбранного города)
-      const cities: Record<string, number> = {};
-      for (const l of listings) cities[l.locality] = (cities[l.locality] ?? 0) + 1;
-      return ok({ cards, cities });
+      return ok({ cards });
     }
 
     case "/listing": {
