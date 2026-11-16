@@ -186,6 +186,8 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
           </li>
         ))}
       </ul>
+      {/* Воздух после последнего объявления, кнопка — прижата к низу экрана над вкладками */}
+      <div className="h-6 shrink-0" />
       <Sticky>
         <button className="btn btn-main w-full" onClick={() => props.onEdit(null)}>
           <Plus size={19} /> Добавить объявление

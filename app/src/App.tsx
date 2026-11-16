@@ -176,7 +176,7 @@ export default function App() {
       onLogo={me.demo ? () => demoCode(refreshMe) : undefined}
       title={top ? TITLES[top.name] : undefined}
     >
-      <div key={top ? `${top.name}:${"id" in top ? top.id : ""}` : tab} className="screen-in">
+      <div key={top ? `${top.name}:${"id" in top ? top.id : ""}` : tab} className="screen-in flex flex-1 flex-col">
         {content}
       </div>
       <DialogHost />
