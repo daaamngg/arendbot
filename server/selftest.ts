@@ -1207,5 +1207,20 @@ await approveHost(HOST6);
   check("в «Избранном» карточки с сердечком", (await call("/favorites", G)).json.cards.every((c: any) => c.favorite === true));
 }
 
+// --- 18.11: дыры из атаки в песочнице (server/attack.ts) — чтобы не вернулись ----------------------------
+{
+  const { maskContacts } = await import("../shared/trust.ts");
+  for (const s of ["８９２７１２３４５６７", "8927l234567", "т.ме/ivan_rent", "пишите в тг", "в tg", "в телегу", "ВК id123", "инст ivan.rent"]) check(`контакт «${s}» скрыт`, maskContacts(s).masked);
+  for (const s of ["Цена 2500 за ночь, в пятницу 3000", "Квартира на 9 этаже, 10 минут до набережной", "Install, вкладка, тележка"]) check(`обычный текст «${s}» не тронут`, !maskContacts(s).masked);
+  // Шесть одновременных «в избранное» — счётчик +1
+  const id = (await call("/search", 299, {})).json.cards[0].id as string;
+  const G = 240;
+  const before = (await ctx.store.getStats([id]))[id].favs;
+  await Promise.all(Array.from({ length: 6 }, () => call("/favorite", G, { id, on: true })));
+  check("одновременные «в избранное» засчитаны один раз", (await ctx.store.getStats([id]))[id].favs === before + 1);
+  await call("/favorite", G, { id, on: false });
+  check("убрал из избранного — счётчик вернулся", (await ctx.store.getStats([id]))[id].favs === before);
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

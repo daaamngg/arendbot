@@ -4,21 +4,33 @@ import type { Listing } from "./types.ts";
 // переведите предоплату на карту». Поэтому контакты в описании запрещены: телефон хозяина гость и так
 // получит, когда бронь подтвердят.
 
-const CONTACT_PATTERNS: RegExp[] = [
-  // телефон: +7 927 123-45-67, 8(927)1234567, 89271234567
-  /(?:\+7|(?<!\d)8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/,
-  /(?<!\d)\d{10,11}(?!\d)/,
+// Цифры, которые мошенники заменяют похожими буквами, чтобы номер не узнали: l и I вместо 1, O и о вместо 0
+const D = "[0-9lIoOоО]";
+/** В найденном «номере» должно быть хотя бы 8 настоящих цифр, иначе это обычное слово из похожих букв */
+const enoughDigits = (m: string) => (m.match(/[0-9]/g) ?? []).length >= 8;
+// Русские слова: границу слова \b JavaScript для кириллицы не видит, поэтому — через «не буква рядом»
+const W = "(?<![а-яёa-z])";
+const E = "(?![а-яёa-z])";
+
+const CONTACT_PATTERNS: { re: RegExp; check?: (m: string) => boolean }[] = [
+  // телефон: +7 927 123-45-67, 8(927)1234567, 89271234567, 8927l234567
+  { re: new RegExp(String.raw`(?:\+7|(?<!\d)8)[\s\-()]*${D}{3}[\s\-()]*${D}{3}[\s\-]*${D}{2}[\s\-]*${D}{2}`, "i"), check: enoughDigits },
+  { re: new RegExp(String.raw`(?<![0-9])${D}{10,11}(?![0-9])`, "i"), check: enoughDigits },
   // мобильный, набранный вразбивку: 8 9 2 7 1 2 3 4 5 6 7, 9-27-123-45-67
-  /(?<!\d)(?:\+?7|8)?[\s\-()]*9(?:[\s\-()]*\d){9}(?!\d)/,
-  // адрес сайта «словами» или с пробелами: avito-oplata точка ru, t . me, wa . me
-  /[a-zа-я0-9-]{2,}\s*(?:\.|точка|dot)\s*(?:ru|рф|com|me|su|net|org|site|online|pro|top|xyz)\b/i,
-  /\bt\s*\.\s*me\b|\bwa\s*\.\s*me\b|т\s*\.\s*ме\b/i,
+  { re: new RegExp(String.raw`(?<![0-9])(?:\+?7|8)?[\s\-()]*9(?:[\s\-()]*${D}){9}(?![0-9])`, "i"), check: enoughDigits },
+  // адрес сайта «словами» или с пробелами: avito-oplata точка ru, t . me, wa . me, т.ме
+  { re: /[a-zа-я0-9-]{2,}\s*(?:\.|точка|dot)\s*(?:ru|рф|com|me|su|net|org|site|online|pro|top|xyz)(?![а-яёa-z])/i },
+  { re: new RegExp(String.raw`(?<![a-zа-яё])(?:t|т)\s*\.\s*(?:me|ме)${E}|${W}wa\s*\.\s*me${E}`, "i") },
+  // почта, в том числе словами: ivan собака mail точка ru
+  { re: /[a-z0-9._-]{2,}\s*(?:@|собака|\(at\)|\[at\])\s*[a-z0-9-]{2,}/i },
   // ссылки и мессенджеры
-  /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:ru|com|me|su|рф|net|org)\b|t\.me|wa\.me|vk\.com/i,
-  /(?<![\w.])@[a-z0-9_]{4,}/i,
-  /what'?s ?app|ватс ?ап|вотс ?ап|вацап|телеграм|телега|telegram|вайбер|viber|авито|avito|циан|суточно\.ру/i,
+  { re: /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:ru|com|me|su|рф|net|org)\b|t\.me|wa\.me|vk\.com/i },
+  { re: /(?<![\w.])@[a-z0-9_]{4,}/i },
+  { re: /what'?s ?app|ватс ?ап|вотс ?ап|вацап|телеграм|телег[аиуе]|telegram|вайбер|viber|авито|avito|циан|суточно\.ру|вконтакте|инстаграм|instagram|insta(?![a-z])/i },
+  // коротко: тг, tg, вк, vk, инст — только отдельным словом, чтобы не задеть обычные слова
+  { re: new RegExp(`${W}(?:тг|tg|вк|vk|инст[аеу]?|inst)${E}`, "i") },
   // прямые просьбы о переводе
-  /предоплат\S* (?:на|по) (?:карт|номер|сбер|тиньк)|переведите|перевод на карту|скин\S* на карт\S*|по сбп|через сбп/i,
+  { re: /предоплат\S* (?:на|по) (?:карт|номер|сбер|тиньк)|переведите|перевод на карту|скин\S* на карт\S*|по сбп|через сбп/i },
 ];
 
 // Номер карты: 16–19 цифр слитно или группами (2202 2063 1234 5678) — главный путь «переведите предоплату».
@@ -39,19 +51,29 @@ function luhn(digits: string) {
 const isCard = (m: string) => luhn(m.replace(/\D/g, ""));
 const hasCard = (s: string) => (s.match(CARD) ?? []).some(isCard);
 
-export const hasContacts = (s: string) => hasCard(s) || CONTACT_PATTERNS.some((p) => p.test(s));
+/** Цифры другим шрифтом (８９２７…) и похожие символы — к обычному виду, прежде чем искать контакты */
+const plain = (s: string) => s.normalize("NFKC");
+
+export const hasContacts = (raw: string) => {
+  const s = plain(raw);
+  return hasCard(s) || CONTACT_PATTERNS.some((p) => {
+    const g = new RegExp(p.re.source, `${p.re.flags.replace("g", "")}g`);
+    return [...s.matchAll(g)].some((m) => !p.check || p.check(m[0]));
+  });
+};
 
 /** В переписке контакты не запрещаем, а прячем: человек видит, что номер вырезан, и понимает почему */
 export function maskContacts(s: string): { text: string; masked: boolean } {
   let masked = false;
-  let text = s.replace(CARD, (m) => {
+  let text = plain(s).replace(CARD, (m) => {
     if (!isCard(m)) return m;
     masked = true;
     return "[скрыто]";
   });
   for (const p of CONTACT_PATTERNS) {
-    const g = new RegExp(p.source, p.flags.includes("g") ? p.flags : `${p.flags}g`);
-    text = text.replace(g, () => {
+    const g = new RegExp(p.re.source, `${p.re.flags.replace("g", "")}g`);
+    text = text.replace(g, (m) => {
+      if (p.check && !p.check(m)) return m;
       masked = true;
       return "[скрыто]";
     });

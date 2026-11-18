@@ -83,6 +83,11 @@ export interface Store {
   /** сообщения бота по объекту (брони или объявлению) — чтобы потом поправить кнопки */
   getMessageIds(key: string): Promise<string[]>;
   addMessageId(key: string, mid: string): Promise<void>;
+  /**
+   * Флажок «да/нет» по ключу, меняется одной неделимой операцией. Возвращает true, если значение
+   * действительно поменялось (а не было уже таким). initial — каким считать флажок, пока его нет
+   */
+  setFlag(key: string, value: boolean, initial: boolean): Promise<boolean>;
   /** было ли событие за последние ttlMs (и отметить его) — от двойных приветствий */
   seenRecently(key: string, ttlMs: number): Promise<boolean>;
 
@@ -328,6 +333,15 @@ export function fileStore(path: string): Store {
     async addMessageId(key, mid) {
       (db.messages[key] ??= []).push(mid);
       flush();
+    },
+    async setFlag(key, value, initial) {
+      // В одном процессе Node между чтением и записью ничего не вклинится
+      const k = `flag:${key}`;
+      const cur = (db.kv[k] as boolean | undefined) ?? initial;
+      if (cur === value) return false;
+      db.kv[k] = value;
+      flush();
+      return true;
     },
     async seenRecently(key, ttlMs) {
       const at = db.marks[key];

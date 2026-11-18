@@ -252,6 +252,15 @@ export function docStore(db: DocTable, opts: { photoUrl?: (name: string) => stri
         await t.put({ kind: "msgs", id: key, data: [...list, mid] });
       });
     },
+    setFlag(key, value, initial) {
+      // Чтение и запись одной транзакцией: два одновременных нажатия не поменяют флажок дважды
+      return db.tx(async (t) => {
+        const cur = (await t.get<boolean>("flag", key)) ?? initial;
+        if (cur === value) return false;
+        await t.put({ kind: "flag", id: key, data: value });
+        return true;
+      });
+    },
     seenRecently(key, ttlMs) {
       return db.tx(async (t) => {
         const at = await t.get<number>("mark", key);

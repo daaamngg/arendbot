@@ -506,10 +506,18 @@ function newListing(ownerId: number, t: number): Listing {
 
 // --- бронь: решения хозяина и отмены ------------------------------------------
 
+/**
+ * Бронь уходит из своего состояния («ждёт ответа», «подтверждена») ровно один раз, даже если два запроса
+ * пришли одновременно (хозяин нажал «Принять», а гость в ту же секунду «Отменить»). Отметка ставится одной
+ * неделимой операцией в базе; второй запрос видит её и ничего не делает
+ */
+const leaveOnce = async (ctx: Ctx, b: Booking) => !(await ctx.store.seenRecently(`bk:${b.id}:left-${b.status}`, 400 * 86_400_000));
+
 async function decide(ctx: Ctx, b: Booking, accept: boolean): Promise<string> {
   const l = await ctx.store.getListing(b.listingId);
   if (!l) return "Объявление не найдено.";
   if (b.status !== "requested") return "На этот запрос уже ответили.";
+  if (!(await leaveOnce(ctx, b))) return "На этот запрос уже ответили.";
   b.status = accept ? "confirmed" : "declined";
   b.decidedAt = now(ctx);
   await ctx.store.saveBooking(b);
@@ -523,6 +531,8 @@ async function decide(ctx: Ctx, b: Booking, accept: boolean): Promise<string> {
 }
 
 async function cancel(ctx: Ctx, b: Booking, by: "guest" | "owner") {
+  // Одновременно «принять» и «отменить» (или две отмены) — сработает только первое
+  if (!(await leaveOnce(ctx, b))) return;
   const l = await ctx.store.getListing(b.listingId);
   // Подтверждённую бронь гость отменил позже срока бесплатной отмены — отмечаем (пока без штрафа, оплата у хозяина)
   if (by === "guest" && b.status === "confirmed" && isLateCancel(b, l, now(ctx))) {
@@ -785,6 +795,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const b = await ctx.store.getBooking(str(body?.id, 16));
       if (!b || b.ownerId !== uid) return fail(404, "not found");
       if (b.status !== "confirmed" || b.checkIn > todaySamara(t)) return fail(400, "too early");
+      // «Не приехал» нажали дважды или вместе с отменой — засчитывается один раз
+      if (!(await leaveOnce(ctx, b))) return fail(409, "already");
       b.status = "noshow";
       b.decidedAt = t;
       await ctx.store.saveBooking(b);
@@ -865,7 +877,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       user.favorites = [...set].slice(-100);
       await ctx.store.saveUser(user);
       // Счётчик «в избранном» — только при настоящем изменении, повторное нажатие не накручивает
-      if (set.has(l.id) !== was && l.ownerId !== uid) await ctx.store.bumpStat(l.id, "favs", set.has(l.id) ? 1 : -1);
+      // Одновременные нажатия «в избранное» не накручивают счётчик: флажок меняется одной неделимой операцией
+      if (set.has(l.id) !== was && l.ownerId !== uid && (await ctx.store.setFlag(`fav:${l.id}:${uid}`, set.has(l.id), was))) await ctx.store.bumpStat(l.id, "favs", set.has(l.id) ? 1 : -1);
       return ok({ favorite: set.has(l.id) });
     }
 
@@ -1590,6 +1603,8 @@ async function addReview(ctx: Ctx, b: Booking, stars: number, text: string): Pro
   if (b.reviewed) return "already reviewed";
   const l = await ctx.store.getListing(b.listingId);
   if (!l) return "not found";
+  // Пять нажатий на звёзды за секунду — засчитывается одно
+  if (await ctx.store.seenRecently(`review:${b.id}`, 400 * 86_400_000)) return "already reviewed";
   b.reviewed = true;
   await ctx.store.saveBooking(b);
   const t = now(ctx);
@@ -1880,6 +1895,7 @@ export async function sweep(ctx: Ctx) {
       if (!l) continue;
       // Хозяин не ответил вовремя — запрос отменяется, даты освобождаются
       if (b.status === "requested" && t > b.decideBy) {
+        if (!(await leaveOnce(ctx, b))) continue;
         b.status = "expired";
         b.decidedAt = t;
         await ctx.store.saveBooking(b);
