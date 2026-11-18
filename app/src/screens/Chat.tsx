@@ -106,7 +106,7 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
   return (
     // Экран переписки как в Telegram: закреплён между шапкой и низом видимой области — когда открывается клавиатура,
     // поле ввода поднимается над ней, а не прячется под неё
-    <div className="fixed inset-x-0 z-10 mx-auto flex max-w-[560px] flex-col bg-[#e7ebe6]" style={{ top: vp.top + 52, height: Math.max(200, vp.height - 52) }}>
+    <div className="fixed inset-x-0 z-10 mx-auto flex max-w-[560px] flex-col bg-chat-bg" style={{ top: vp.top + 52, height: Math.max(200, vp.height - 52) }}>
       <button className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-2 text-left" onClick={() => props.onListing(thread.listingId)}>
         <div className="size-9 shrink-0 overflow-hidden rounded-lg bg-surface-2">{thread.photo ? <img src={thread.photo} alt="" className="size-full object-cover" /> : <Home className="m-auto mt-2 text-dim" size={18} />}</div>
         <div className="min-w-0">
@@ -139,8 +139,8 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
                 )}
                 <div className={`flex ${r.own ? "justify-end" : "justify-start"} ${lastInGroup ? "mb-2" : "mb-0.5"}`}>
                   <div
-                    className={`relative max-w-[80%] px-2.5 pt-1.5 pb-1 text-[15px] leading-snug shadow-[0_1px_1px_rgb(0_0_0/0.08)] ${
-                      r.own ? `bg-[#dcf0ff] text-ink ${lastInGroup ? "rounded-[16px] rounded-br-[4px]" : "rounded-[16px]"}` : `bg-surface text-ink ${lastInGroup ? "rounded-[16px] rounded-bl-[4px]" : "rounded-[16px]"}`
+                    className={`relative max-w-[80%] px-2.5 pt-1.5 pb-1 text-[15px] leading-snug shadow-bubble ${
+                      r.own ? `bg-bubble text-ink ${lastInGroup ? "rounded-[16px] rounded-br-[4px]" : "rounded-[16px]"}` : `bg-surface text-ink ${lastInGroup ? "rounded-[16px] rounded-bl-[4px]" : "rounded-[16px]"}`
                     } ${r.deleted ? "italic text-dim" : ""} ${r.state === "sending" ? "opacity-80" : ""}`}
                     // Своё сообщение: нажать → «Удалить у всех»
                     onClick={() => r.msg && r.own && !r.deleted && removeMsg(r.msg)}
@@ -156,7 +156,7 @@ export function ChatScreen(props: { id?: string; listingId?: string; onListing: 
                 </div>
                 {/* Собеседник просит код, предоплату или оплату «по ссылке» — предупреждаем */}
                 {!r.own && r.msg?.risky && (
-                  <div className="-mt-1 mb-2 flex max-w-[85%] items-start gap-1.5 rounded-xl bg-[#f5e1dd] px-2.5 py-1.5 text-[12px] leading-snug text-bad">
+                  <div className="-mt-1 mb-2 flex max-w-[85%] items-start gap-1.5 rounded-xl bg-bad-soft px-2.5 py-1.5 text-[12px] leading-snug text-bad">
                     <ShieldAlert size={14} className="mt-px shrink-0" aria-hidden />
                     Похоже на обман. Не переходите по ссылкам, не называйте коды из СМС и не переводите деньги до подтверждения брони.
                   </div>
@@ -245,7 +245,7 @@ export function ThreadList(props: { onOpen: (id: string) => void; bare?: boolean
   useLive(() => api.chatList().then((r) => setThreads(r.threads), () => setThreads((x) => x ?? [])), 15000);
   if (!threads) return props.bare ? <p className="py-6 text-center text-dim">Загружаем…</p> : null;
   if (!threads.length) {
-    return props.bare ? <EmptyState icon={<MessageCircle size={26} />} title="Сообщений пока нет" text="Задайте вопрос хозяину в объявлении — переписка появится здесь." /> : null;
+    return props.bare ? <EmptyState icon={<MessageCircle size={26} />} title="Сообщений пока нет" text="Задайте вопрос хозяину в объявлении, и переписка появится здесь." /> : null;
   }
   return (
     <section className={props.bare ? "" : "mb-6"}>

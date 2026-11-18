@@ -22,6 +22,20 @@
   /* Второй, тёплый акцент: «новое», звёзды, быстрые подборки. Синий остаётся главным (кнопки, выбор) */
   --color-warm: #d9801c;
   --color-warm-soft: #fbefdf;
+  /* Мягкие подложки и служебные оттенки — раньше были вписаны прямо в разметку, значения те же */
+  --color-bad-soft: #f5e1dd;
+  --color-warn-soft: #f6ecd9;
+  --color-ok-soft: #e2efe3;
+  --color-warm-light: #ffc477;
+  --color-star: #c08a1e;
+  --color-chat-bg: #e7ebe6;
+  --color-bubble: #dcf0ff;
+  --color-on-accent: #ffffff;
+  /* Тени — тоже токенами */
+  --shadow-pill: 0 1px 2px rgb(0 0 0 / 0.12);
+  --shadow-tab: 0 1px 2px rgb(0 0 0 / 0.08);
+  --shadow-bubble: 0 1px 1px rgb(0 0 0 / 0.08);
+  --shadow-dialog: 0 8px 32px rgb(0 0 0 / 0.18);
   --font-sans: "Onest", system-ui, sans-serif;
 }
 
@@ -63,7 +77,7 @@
     justify-content: center;
     gap: 8px;
     min-height: 50px;
-    padding: 0 18px;
+    padding: 0 16px;
     border-radius: 12px;
     font-weight: 600;
     transition: transform 0.08s ease, opacity 0.15s ease;
@@ -77,11 +91,7 @@
   }
   .btn-main {
     background: var(--color-accent);
-    color: #fff;
-  }
-  .btn-soft {
-    background: var(--color-accent-soft);
-    color: var(--color-accent);
+    color: var(--color-on-accent);
   }
   .btn-line {
     border: 1px solid var(--color-line);
@@ -91,7 +101,7 @@
   .field {
     width: 100%;
     min-height: 48px;
-    padding: 10px 12px;
+    padding: 12px 12px;
     border: 1px solid var(--color-line);
     border-radius: 10px;
     background: var(--color-surface);
@@ -120,7 +130,7 @@
   }
   .label {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     font-size: 14px;
     font-weight: 600;
     color: var(--color-ink);
@@ -134,7 +144,7 @@
     display: inline-flex;
     align-items: center;
     min-height: 38px;
-    padding: 0 14px;
+    padding: 0 12px;
     border: 1px solid var(--color-line);
     border-radius: 999px;
     background: var(--color-surface);

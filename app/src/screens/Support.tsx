@@ -33,7 +33,7 @@ export function SupportScreen() {
 
   return (
     <>
-      <H1 sub="Вопрос, проблема с бронью или с хозяином — напишите, команда площадки ответит.">Поддержка</H1>
+      <H1 sub="Вопрос, проблема с бронью или с хозяином? Напишите, команда площадки ответит.">Поддержка</H1>
       <div className="card p-4">
         <textarea
           className="field min-h-[112px] resize-none"

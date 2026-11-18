@@ -130,7 +130,7 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
       <h2 className="mb-2 text-[17px] font-bold text-ink">Мои объявления</h2>
       {rows.length === 0 && (
         <div className="mb-3">
-          <EmptyState icon={<Home size={26} />} title="Объявлений пока нет" text="Добавьте первое: фото, адрес и цена — минут десять. Размещение бесплатное." />
+          <EmptyState icon={<Home size={26} />} title="Объявлений пока нет" text="Добавьте первое: фото, адрес и цена, это минут десять. Размещение бесплатное." />
         </div>
       )}
       <ul className="space-y-3">
@@ -234,7 +234,7 @@ function HostApply(props: { me: Me }) {
   return (
     <>
       <H1 sub="Размещение бесплатное. Чтобы на площадке не было обмана, каждого хозяина сначала проверяет модератор.">Сдавать жильё</H1>
-      {status === "rejected" && props.me.hostNote && <p className="mb-4 rounded-lg bg-[#f5e1dd] p-3 text-[14px] text-bad">Прошлая заявка не одобрена: {props.me.hostNote}</p>}
+      {status === "rejected" && props.me.hostNote && <p className="mb-4 rounded-lg bg-bad-soft p-3 text-[14px] text-bad">Прошлая заявка не одобрена: {props.me.hostNote}</p>}
       <section className="card space-y-4 p-4">
         <div>
           <label className="label" htmlFor="ha-name">
@@ -436,10 +436,10 @@ export function HostForm(props: { me: Me; id: string | null; onSaved: (id: strin
         </div>
         {l && <Badge listing={l.status} />}
       </div>
-      {l?.status === "rejected" && l.moderatorNote && <p className="mb-3 rounded-lg bg-[#f5e1dd] p-3 text-[14px] text-bad">Модератор: {l.moderatorNote}</p>}
+      {l?.status === "rejected" && l.moderatorNote && <p className="mb-3 rounded-lg bg-bad-soft p-3 text-[14px] text-bad">Модератор: {l.moderatorNote}</p>}
       {/* Снято модератором: причина и что делать дальше */}
       {l?.status === "blocked" && (
-        <div className="mb-4 rounded-xl bg-[#f5e1dd] px-4 py-3.5 text-[14px] leading-relaxed text-bad">
+        <div className="mb-4 rounded-xl bg-bad-soft px-4 py-3.5 text-[14px] leading-relaxed text-bad">
           <p className="font-semibold">Объявление снято модератором</p>
           {l.moderatorNote && <p className="mt-1.5 text-ink">Причина: {l.moderatorNote}</p>}
           <p className="mt-2 text-ink">Исправьте то, что не так, и нажмите «Отправить на проверку». Модератор посмотрит снова и вернёт объявление в поиск.</p>

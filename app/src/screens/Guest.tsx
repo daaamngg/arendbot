@@ -113,14 +113,14 @@ function PhotoStrip(props: { card: ListingCard; onOpen: () => void; onFavorite: 
       {c.isNew && !c.stars && <span className="pointer-events-none absolute top-2.5 left-2.5 rounded-full bg-warm px-2.5 py-0.5 text-[12px] font-semibold text-white">Новое</span>}
       {/* Сердечко — отдельная кнопка поверх фото, не открывает объявление */}
       <button
-        className="absolute top-2 right-2 grid size-10 place-items-center rounded-full bg-surface/90 shadow-[0_1px_2px_rgb(0_0_0/0.12)] active:scale-95"
+        className="absolute top-2 right-2 grid size-10 place-items-center rounded-full bg-surface/90 shadow-pill active:scale-95"
         aria-label={c.favorite ? "Убрать из избранного" : "В избранное"}
         aria-pressed={c.favorite}
         onClick={() => props.onFavorite(!c.favorite)}
       >
         <Heart size={20} className={c.favorite ? "fill-bad text-bad" : "text-ink"} />
       </button>
-      <span className="pointer-events-none absolute bottom-2.5 left-2.5 rounded-lg bg-surface px-2.5 py-1 text-[15px] font-bold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] tabular-nums">
+      <span className="pointer-events-none absolute bottom-2.5 left-2.5 rounded-lg bg-surface px-2.5 py-1 text-[15px] font-bold text-ink shadow-pill tabular-nums">
         {c.total != null ? rub(c.total) : `от ${rub(c.priceFrom)}`}
         <span className="ml-1 text-[12px] font-medium text-dim">{c.total != null ? `за ${nightsText(c.nights!)}` : "ночь"}</span>
       </span>
@@ -173,20 +173,11 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
     <>
       {/* Компактный поиск: одна карточка строками «Где / Когда / Гостей», поля без своих рамок.
           Фильтры — отдельной кнопкой рядом, раскрываются под карточкой */}
-      {/* Шапка: о чём площадка и почему ей можно доверять — коротко, без рекламы */}
-      <section className="mb-3 rounded-2xl bg-accent px-4 pt-4 pb-3.5 text-white">
-        <h1 className="text-[22px] leading-tight font-bold tracking-[-0.01em]">
-          Квартиры посуточно <span className="text-[#ffc477]">в&nbsp;Самаре и&nbsp;области</span>
+      {/* Шапка: синий блок во всю ширину, внутри заголовок и сразу поиск (как у Booking и Суточно) */}
+      <div className="-mx-4 -mt-4 mb-1 bg-accent px-4 pt-4 pb-4">
+        <h1 className="mb-3 pl-2 text-[21px] leading-tight font-bold tracking-[-0.01em] text-white">
+          Квартиры посуточно <span className="text-warm-light">в&nbsp;Самаре и&nbsp;области</span>
         </h1>
-        <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-white/85">
-          {["Хозяин подтверждает бронь", "Без предоплаты на карту", "Отзывы только от гостей"].map((t) => (
-            <li key={t} className="flex items-center gap-1.5">
-              <Check size={14} className="text-[#ffc477]" aria-hidden />
-              {t}
-            </li>
-          ))}
-        </ul>
-      </section>
       <section className="card divide-y divide-line">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <MapPin size={18} className="shrink-0 text-dim" aria-hidden />
@@ -212,6 +203,7 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
           </div>
         </div>
       </section>
+      </div>
 
       {/* Быстрые подборки — плитки 2×2: значок слева, подпись в одну строку. Нажал ещё раз — снял */}
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -550,7 +542,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
 
       {!data.own && (
         <div className={`mt-4 grid gap-2 ${l.hostPhone ? "grid-cols-2" : "grid-cols-1"}`}>
-          <button className="btn btn-soft w-full" onClick={() => props.onChat(l.id)}>
+          <button className="btn btn-line w-full" onClick={() => props.onChat(l.id)}>
             <MessageCircle size={18} /> {l.hostPhone ? "Написать" : "Задать вопрос хозяину"}
           </button>
           {/* Номер хозяина — только если он сам разрешил показывать его до брони */}
@@ -701,7 +693,7 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
           )}
           {/* Ошибка отправки — здесь, у кнопки: видно причину, данные не пропали, можно повторить */}
           {bookError && (
-            <div className="mb-2 rounded-lg bg-[#f5e1dd] px-3 py-2 text-[14px] text-bad" role="alert">
+            <div className="mb-2 rounded-lg bg-bad-soft px-3 py-2 text-[14px] text-bad" role="alert">
               {bookError}
             </div>
           )}
@@ -772,7 +764,7 @@ function Complaint(props: { id: string }) {
   if (state === "sent") return <p className="mt-6 text-[14px] text-dim">Спасибо, жалоба у модератора. Он проверит объявление.</p>;
   if (!open) {
     return (
-      <button className="mt-6 flex items-center gap-1.5 text-[14px] text-dim" onClick={() => setOpen(true)}>
+      <button className="mt-6 flex items-center gap-1.5 text-[14px] whitespace-nowrap text-dim" onClick={() => setOpen(true)}>
         <Flag size={15} /> Пожаловаться на объявление
       </button>
     );
@@ -933,7 +925,7 @@ export function TripsScreen(props: { onFind: () => void; onOpen: (id: string) =>
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`h-9 rounded-lg text-[14px] font-semibold ${tab === id ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.08)]" : "text-dim"}`}
+            className={`h-9 rounded-lg text-[14px] font-semibold ${tab === id ? "bg-surface text-ink shadow-tab" : "text-dim"}`}
           >
             {title}
             {n > 0 && <span className={`ml-1 tabular-nums ${id === "chats" ? "text-bad" : "text-dim"}`}>{n}</span>}
@@ -949,7 +941,7 @@ export function TripsScreen(props: { onFind: () => void; onOpen: (id: string) =>
         ) : (
           <>
             {upcoming.length === 0 ? (
-              <EmptyState icon={<CalendarDays size={26} />} title="Броней пока нет" text="Выберите жильё и даты — запрос уйдёт хозяину, ответ придёт сюда и в чат." action={{ label: "Найти жильё", onClick: props.onFind }} />
+              <EmptyState icon={<CalendarDays size={26} />} title="Броней пока нет" text="Выберите жильё и даты. Запрос уйдёт хозяину, ответ придёт сюда и в чат." action={{ label: "Найти жильё", onClick: props.onFind }} />
             ) : (
               <ul className="card divide-y divide-line">{upcoming.map(row)}</ul>
             )}
@@ -1126,7 +1118,7 @@ function BookingCalendar(props: { busy: Set<string>; minNights: number; checkIn:
         <span>
           <s>12</s> занято
         </span>
-        {props.priceWeekend !== props.priceWeekday && <span>пт и сб — {rub(props.priceWeekend)}</span>}
+        {props.priceWeekend !== props.priceWeekday && <span>пт и сб по {rub(props.priceWeekend)}</span>}
         <span>{props.checkIn && !props.checkOut ? "Теперь выберите день выезда" : !props.checkIn ? "Выберите день заезда" : ""}</span>
       </div>
     </div>

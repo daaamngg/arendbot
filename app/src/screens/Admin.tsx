@@ -153,7 +153,7 @@ function Applications(props: { act: Act }) {
           {a.about && <p className="mt-2">{a.about}</p>}
           <div className="mt-1 text-[12px] text-dim">подана {when(a.at)}</div>
           {/* Подсказки бота: решаете вы, но проверять всё вручную не нужно */}
-          <div className={`mt-3 rounded-lg px-3 py-2 text-[13px] ${a.hints.flags.length ? "bg-[#f6ecd9] text-warn" : "bg-[#e2efe3] text-ok"}`}>
+          <div className={`mt-3 rounded-lg px-3 py-2 text-[13px] ${a.hints.flags.length ? "bg-warn-soft text-warn" : "bg-ok-soft text-ok"}`}>
             {a.hints.flags.length ? <>Бот советует проверить: {a.hints.flags.join("; ")}</> : "Бот ничего подозрительного не нашёл"}
             {a.hints.good.length > 0 && <div className="mt-0.5 text-dim">В пользу: {a.hints.good.join("; ")}</div>}
           </div>
@@ -264,13 +264,13 @@ function Review(props: { act: Act }) {
                     <div className="truncate font-semibold text-ink">{r.title}</div>
                     <div className="text-dim">{r.guestName ?? "Гость"}</div>
                   </div>
-                  <span className="shrink-0 text-[#c08a1e]" aria-label={`Оценка ${r.stars} из 5`}>
+                  <span className="shrink-0 text-star" aria-label={`Оценка ${r.stars} из 5`}>
                     {"★".repeat(r.stars)}
                     <span className="text-line">{"★".repeat(5 - r.stars)}</span>
                   </span>
                 </div>
                 {r.text && <p className="mt-2 text-ink">«{r.text}»</p>}
-                {r.held?.length ? <p className="mt-2 rounded-lg bg-[#f6ecd9] px-3 py-2 text-[13px] text-warn">Смотритель придержал: {r.held.join(", ")}</p> : null}
+                {r.held?.length ? <p className="mt-2 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">Смотритель придержал: {r.held.join(", ")}</p> : null}
                 {r.disputed && <p className="mt-2 rounded-lg bg-accent-soft px-3 py-2 text-[13px] text-ink">Хозяин оспаривает: «{r.disputed}»</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className="rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-accent" onClick={() => props.act(() => api.adminReview(r.listingId, r.id, true), r.held?.length ? "Отзыв засчитан." : "Отзыв оставлен.", load)}>
@@ -449,7 +449,7 @@ function People(props: { act: Act }) {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="font-semibold leading-snug text-ink">{u.name ?? "Без имени"}</span>
                 {u.role && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[12px] font-semibold text-accent">{u.role === "owner" ? "главный" : "модератор"}</span>}
-                {u.blocked && <span className="rounded-full bg-[#f5e1dd] px-2 py-0.5 text-[12px] font-semibold text-bad">заблокирован</span>}
+                {u.blocked && <span className="rounded-full bg-bad-soft px-2 py-0.5 text-[12px] font-semibold text-bad">заблокирован</span>}
               </div>
               <div className="mt-1 text-dim">{u.phone ? phoneText(u.phone) : "номер не оставлял"}</div>
               <div className="mt-0.5 text-[13px] text-dim">
@@ -597,7 +597,7 @@ function Team(props: { act: Act; owner: boolean }) {
           <h2 className="font-bold text-ink">Код модераторов</h2>
           <p className="text-[13px] text-dim">
             Человек отправляет этот код боту и становится модератором: проверка объявлений, заявок и жалоб. Вам придёт сообщение о каждом новом.
-            Если код ушёл не тому — смените, старый сразу перестанет работать.
+            Если код ушёл не тому, смените его, и старый сразу перестанет работать.
           </p>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5">
             <button className="min-w-0 truncate text-[18px] font-bold tracking-wide text-ink tabular-nums" onClick={() => modCode && navigator.clipboard?.writeText(modCode).then(() => setCopied(true), () => {})}>

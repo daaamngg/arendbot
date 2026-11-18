@@ -101,7 +101,7 @@ export function DialogHost() {
   const stacked = cur.cancel === null || (cur.ok ?? "").length > 12 || (cur.cancel ?? "").length > 12;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={cur.title} onClick={() => cur.cancel !== null && close(cur.input ? null : false)}>
-      <div className="w-full max-w-[420px] rounded-2xl bg-surface p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_8px_32px_rgb(0_0_0/0.18)]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[420px] rounded-2xl bg-surface p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="text-[17px] font-bold text-ink">{cur.title}</div>
         {cur.text && <p className="mt-1.5 text-[14px] text-dim">{cur.text}</p>}
         {cur.input && (

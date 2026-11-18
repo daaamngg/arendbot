@@ -118,21 +118,21 @@ export function Stepper(props: { value: number; min: number; max: number; onChan
 
 const LISTING_STATUS: Record<ListingStatus, [string, string]> = {
   draft: ["Черновик", "text-dim bg-surface-2"],
-  pending: ["На проверке", "text-warn bg-[#f6ecd9]"],
-  active: ["В поиске", "text-ok bg-[#e2efe3]"],
-  rejected: ["Вернули на доработку", "text-bad bg-[#f5e1dd]"],
+  pending: ["На проверке", "text-warn bg-warn-soft"],
+  active: ["В поиске", "text-ok bg-ok-soft"],
+  rejected: ["Вернули на доработку", "text-bad bg-bad-soft"],
   paused: ["Снято с показа", "text-dim bg-surface-2"],
-  blocked: ["Снято модератором", "text-bad bg-[#f5e1dd]"],
+  blocked: ["Снято модератором", "text-bad bg-bad-soft"],
   deleted: ["Удалено", "text-dim bg-surface-2"],
 };
 
 const BOOKING_STATUS: Record<BookingStatus, [string, string]> = {
-  requested: ["Ждёт ответа хозяина", "text-warn bg-[#f6ecd9]"],
-  confirmed: ["Подтверждена", "text-ok bg-[#e2efe3]"],
+  requested: ["Ждёт ответа хозяина", "text-warn bg-warn-soft"],
+  confirmed: ["Подтверждена", "text-ok bg-ok-soft"],
   declined: ["Хозяин отказал", "text-dim bg-surface-2"],
   expired: ["Хозяин не ответил", "text-dim bg-surface-2"],
   cancelled: ["Отменена", "text-dim bg-surface-2"],
-  noshow: ["Гость не приехал", "text-bad bg-[#f5e1dd]"],
+  noshow: ["Гость не приехал", "text-bad bg-bad-soft"],
 };
 
 export function Badge(props: { listing?: ListingStatus; booking?: BookingStatus }) {
