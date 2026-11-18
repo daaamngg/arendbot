@@ -1194,5 +1194,18 @@ await approveHost(HOST6);
   clock = saved;
 }
 
+// --- 18.11: в карточке поиска несколько фото и сердечко ------------------------------------------------
+{
+  const G = 230;
+  const cards0 = (await call("/search", G, {})).json.cards;
+  const withPhotos = cards0.find((c: any) => c.photos?.length >= 2);
+  check("в карточке поиска до 5 фото", !!withPhotos && withPhotos.photos.length <= 5 && withPhotos.photos[0] === (withPhotos.photos[0]));
+  check("сначала не в избранном", withPhotos.favorite === false);
+  await call("/favorite", G, { id: withPhotos.id, on: true });
+  check("сердечко в поиске видно после сохранения", (await call("/search", G, {})).json.cards.find((c: any) => c.id === withPhotos.id)?.favorite === true);
+  check("у другого человека — не в избранном", (await call("/search", G + 1, {})).json.cards.find((c: any) => c.id === withPhotos.id)?.favorite === false);
+  check("в «Избранном» карточки с сердечком", (await call("/favorites", G)).json.cards.every((c: any) => c.favorite === true));
+}
+
 console.log(failed ? `\nОшибок: ${failed}` : "\nВсё в порядке");
 process.exit(failed ? 1 : 0);

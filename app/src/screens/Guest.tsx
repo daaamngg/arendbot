@@ -7,7 +7,7 @@ import { CANCEL_OPTIONS, COMPLAINT_REASONS, type ListingCard, type PublicListing
 import { api, errorText, type BookingView, type Me, type SearchQuery } from "../lib/api.ts";
 import { useLive } from "../lib/live.ts";
 import { ask, askText, tell } from "../ui/dialog.tsx";
-import { haptic } from "../lib/max.ts";
+import { haptic, openExternal } from "../lib/max.ts";
 import { Badge, CityPicker, Cover, H1, PhoneGate, Spinner, Stepper, Sticky, phoneText, CardSkeletons, EmptyState } from "../ui/ui.tsx";
 
 // --- Поиск --------------------------------------------------------------------------
@@ -86,6 +86,54 @@ const newKey = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math
 
 const cancelText = (days: number = 0) =>
   days === 0 ? "Бесплатная отмена до заезда" : `Бесплатная отмена не позже чем ${CANCEL_OPTIONS.find((o) => o.days === days)?.title.toLowerCase() ?? `за ${days} дн.`} до заезда`;
+
+/** Фото карточки поиска: листаются свайпом, точки показывают, какое по счёту; сердечко — сохранить в избранное */
+function PhotoStrip(props: { card: ListingCard; onOpen: () => void; onFavorite: (on: boolean) => void }) {
+  const c = props.card;
+  const photos = c.photos?.length ? c.photos : c.photo ? [c.photo] : [];
+  const [index, setIndex] = useState(0);
+  return (
+    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-surface-2">
+      {photos.length ? (
+        <div
+          className="flex size-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none]"
+          onScroll={(e) => setIndex(Math.round(e.currentTarget.scrollLeft / Math.max(1, e.currentTarget.clientWidth)))}
+        >
+          {photos.map((src, i) => (
+            <button key={src} className="size-full shrink-0 snap-center" onClick={props.onOpen} aria-label={`Открыть объявление, фото ${i + 1} из ${photos.length}`}>
+              <Cover src={src} className="size-full" lazy={i > 0} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button className="grid size-full place-items-center text-dim" onClick={props.onOpen} aria-label="Открыть объявление">
+          <Home size={28} />
+        </button>
+      )}
+      {c.isNew && !c.stars && <span className="pointer-events-none absolute top-2.5 left-2.5 rounded-full bg-warm px-2.5 py-0.5 text-[12px] font-semibold text-white">Новое</span>}
+      {/* Сердечко — отдельная кнопка поверх фото, не открывает объявление */}
+      <button
+        className="absolute top-2 right-2 grid size-10 place-items-center rounded-full bg-surface/90 shadow-[0_1px_2px_rgb(0_0_0/0.12)] active:scale-95"
+        aria-label={c.favorite ? "Убрать из избранного" : "В избранное"}
+        aria-pressed={c.favorite}
+        onClick={() => props.onFavorite(!c.favorite)}
+      >
+        <Heart size={20} className={c.favorite ? "fill-bad text-bad" : "text-ink"} />
+      </button>
+      <span className="pointer-events-none absolute bottom-2.5 left-2.5 rounded-lg bg-surface px-2.5 py-1 text-[15px] font-bold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] tabular-nums">
+        {c.total != null ? rub(c.total) : `от ${rub(c.priceFrom)}`}
+        <span className="ml-1 text-[12px] font-medium text-dim">{c.total != null ? `за ${nightsText(c.nights!)}` : "ночь"}</span>
+      </span>
+      {photos.length > 1 && (
+        <div className="pointer-events-none absolute right-3 bottom-3.5 flex gap-1" aria-hidden>
+          {photos.map((src, i) => (
+            <span key={src} className={`size-1.5 rounded-full ${i === index ? "bg-white" : "bg-white/50"}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: SearchQuery) => void; onOpen: (id: string) => void }) {
   const q = props.query;
@@ -246,21 +294,22 @@ export function SearchScreen(props: { me: Me; query: SearchQuery; onQuery: (q: S
       <ul className={`space-y-4 transition-opacity ${loading && cards ? "opacity-60" : ""}`}>
         {cards?.map((c) => (
           <li key={c.id}>
+            {/* Фото листаются пальцем, как в больших сервисах; нажатие по фото открывает объявление */}
+            <PhotoStrip
+              card={c}
+              onOpen={() => props.onOpen(c.id)}
+              onFavorite={async (on) => {
+                setCards((x) => x?.map((y) => (y.id === c.id ? { ...y, favorite: on } : y)) ?? x);
+                haptic("select");
+                try {
+                  await api.favorite(c.id, on);
+                } catch {
+                  // Не получилось — возвращаем как было
+                  setCards((x) => x?.map((y) => (y.id === c.id ? { ...y, favorite: !on } : y)) ?? x);
+                }
+              }}
+            />
             <button className="block w-full text-left" onClick={() => props.onOpen(c.id)}>
-              <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-surface-2">
-                {c.photo ? (
-                  <Cover src={c.photo} className="size-full" lazy />
-                ) : (
-                  <div className="grid size-full place-items-center text-dim">
-                    <Home size={28} />
-                  </div>
-                )}
-                {c.isNew && !c.stars && <span className="absolute top-2.5 left-2.5 rounded-full bg-warm px-2.5 py-0.5 text-[12px] font-semibold text-white">Новое</span>}
-                <span className="absolute bottom-2.5 left-2.5 rounded-lg bg-surface px-2.5 py-1 text-[15px] font-bold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] tabular-nums">
-                  {c.total != null ? rub(c.total) : `от ${rub(c.priceFrom)}`}
-                  <span className="ml-1 text-[12px] font-medium text-dim">{c.total != null ? `за ${nightsText(c.nights!)}` : "ночь"}</span>
-                </span>
-              </div>
               <div className="mt-2 flex items-start justify-between gap-3 px-0.5">
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-ink">{c.title}</div>
@@ -479,8 +528,14 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
         <span className="text-[14px] text-dim">за ночь</span>
         {l.priceWeekend !== l.priceWeekday && <span className="text-[14px] text-dim">· пт и сб {rub(l.priceWeekend)}</span>}
       </div>
-      <div className="mt-1 flex items-center gap-1.5 text-[14px] text-dim">
-        <MapPin size={15} className="shrink-0" /> {[l.locality, l.address].filter(Boolean).join(", ")}
+      <div className="mt-1 flex items-start justify-between gap-3 text-[14px] text-dim">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <MapPin size={15} className="shrink-0" /> {[l.locality, l.address].filter(Boolean).join(", ")}
+        </span>
+        {/* Адрес в Яндекс Картах — улица и дом, без квартиры (её хозяин пришлёт после подтверждения) */}
+        <button className="shrink-0 font-semibold text-accent" onClick={() => openExternal(`https://yandex.ru/maps/?text=${encodeURIComponent([l.locality, l.address].filter(Boolean).join(", "))}`)}>
+          На карте
+        </button>
       </div>
       <p className="mt-0.5 pl-[21px] text-[13px] text-dim">{l.district ? `${l.district} район. ` : ""}Номер квартиры хозяин пришлёт после подтверждения</p>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[14px] text-ink">

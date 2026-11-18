@@ -330,6 +330,10 @@ export interface ListingCard {
   isNew: boolean;
   /** удобства — на карточке показываем значками самые важные */
   amenities: string[];
+  /** до 5 фото — листаются прямо в карточке поиска */
+  photos: string[];
+  /** человек уже сохранил это объявление (сердечко на фото) */
+  favorite: boolean;
   pets: boolean;
   publishedAt: number;
   id: string;

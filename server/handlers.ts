@@ -267,11 +267,13 @@ const starsOf = (l: Listing) => (l.rating?.count ? Math.round((l.rating.sum / l.
 /** Первая публикация. У старых объявлений даты нет — берём отправку на проверку или создание */
 const publishedOf = (l: Listing) => l.publishedAt ?? l.submittedAt ?? l.createdAt;
 
-function card(l: Listing, range?: { checkIn: string; checkOut: string }, t = Date.now()): ListingCard {
+function card(l: Listing, range?: { checkIn: string; checkOut: string }, t = Date.now(), favorite = false): ListingCard {
   const p = range ? price(l, range.checkIn, range.checkOut) : null;
   return {
     isNew: !l.rating?.count && t - publishedOf(l) < NEW_DAYS * 86_400_000,
     amenities: l.amenities,
+    photos: l.photos.slice(0, 5).map((p) => p.url),
+    favorite,
     pets: !!l.rules?.pets,
     stars: starsOf(l),
     reviews: l.rating?.count ?? 0,
@@ -656,12 +658,13 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
       const sort = ["price", "rating", "new"].includes(body?.sort) ? body.sort : "price";
       const range = isDate(body?.checkIn) && isDate(body?.checkOut) ? { checkIn: body.checkIn as string, checkOut: body.checkOut as string } : undefined;
       const [listings, bookings] = await Promise.all([ctx.store.listListings({ status: ["active"] }), range ? ctx.store.listBookings({ status: HOLDING }) : []]);
+      const favs = new Set(user.favorites ?? []);
       const cards = listings
         .filter((l) => (!locality || l.locality === locality) && l.guests >= guests && (!rooms || l.rooms >= rooms))
         .filter((l) => (!pets || l.rules.pets) && (!kids || l.rules.kids) && need.every((a) => l.amenities.includes(a)))
         // На выбранные даты — только свободное: «объявления сразу схватываются» и честно показывают занятость
         .filter((l) => !range || !checkRange(l, bookings.filter((b) => b.listingId === l.id), range.checkIn, range.checkOut, t))
-        .map((l) => card(l, range, t))
+        .map((l) => card(l, range, t, favs.has(l.id)))
         .filter((c) => !priceMax || (c.total != null && c.nights ? c.total / c.nights : c.priceFrom) <= priceMax)
         .sort((x, y) =>
           sort === "rating"
@@ -868,7 +871,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any, meta: { ip?: 
 
     case "/favorites": {
       const list = await Promise.all((user.favorites ?? []).map((id) => ctx.store.getListing(id)));
-      return ok({ cards: list.filter((l): l is Listing => !!l && l.status === "active").map((l) => card(l, undefined, t)) });
+      return ok({ cards: list.filter((l): l is Listing => !!l && l.status === "active").map((l) => card(l, undefined, t, true)) });
     }
 
     case "/review": {
