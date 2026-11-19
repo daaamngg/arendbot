@@ -85,9 +85,15 @@
   .btn:active {
     transform: scale(0.98);
   }
-  .btn:disabled {
-    opacity: 0.45;
-    cursor: default;
+  /* Неактивная кнопка — не просто бледная: серая подложка, серый текст и курсор «нельзя», чтобы было ясно, что нажать нельзя */
+  .btn:disabled,
+  .btn-main:disabled,
+  .btn-line:disabled {
+    background: var(--color-surface-2);
+    color: var(--color-dim);
+    border-color: var(--color-surface-2);
+    cursor: not-allowed;
+    transform: none;
   }
   .btn-main {
     background: var(--color-accent);
