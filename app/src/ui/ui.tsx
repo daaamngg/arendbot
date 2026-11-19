@@ -49,10 +49,7 @@ export function Shell(props: { children: ReactNode; tab: Tab; onTab: (t: Tab) =>
             <span className="grid size-7 place-items-center rounded-lg bg-accent text-white" aria-hidden>
               <KeyRound size={16} strokeWidth={2.4} />
             </span>
-            <span className="leading-tight">
-              <span className="block text-[15px] font-bold text-ink">Посуточно</span>
-              <span className="block text-[12px] text-dim">Самара и область</span>
-            </span>
+            <span className="text-[16px] leading-tight font-bold text-ink">Посуточно</span>
           </div>
         )}
       </header>

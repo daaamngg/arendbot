@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AirVent, BedDouble, CalendarDays, Car, Check, ChevronDown, Flag, Heart, Home, LoaderCircle, MapPin, MessageCircle, PawPrint, Phone, SearchX, Share, SlidersHorizontal, Star, Users, Wallet, WashingMachine, Wifi } from "lucide-react";
+import { AirVent, BedDouble, CalendarDays, Car, Check, ChevronDown, Flag, Heart, Home, LoaderCircle, MapPin, MessageCircle, PawPrint, Phone, SearchX, Share, SlidersHorizontal, Star, Users, Wallet, WashingMachine, Wifi, Map as MapIcon } from "lucide-react";
 import { ThreadList } from "./Chat.tsx";
 import { depositLabel } from "../../../shared/catalog.ts";
 import { addDays, dayText, guestsText, guestsUpTo, nightsBetween, nightsFrom, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
@@ -520,16 +520,25 @@ export function ListingScreen(props: { me: Me; id: string; query: SearchQuery; o
         <span className="text-[14px] text-dim">за ночь</span>
         {l.priceWeekend !== l.priceWeekday && <span className="text-[14px] text-dim">· пт и сб {rub(l.priceWeekend)}</span>}
       </div>
-      <div className="mt-1 flex items-start justify-between gap-3 text-[14px] text-dim">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <MapPin size={15} className="shrink-0" /> {[l.locality, l.address].filter(Boolean).join(", ")}
-        </span>
-        {/* Адрес в Яндекс Картах — улица и дом, без квартиры (её хозяин пришлёт после подтверждения) */}
-        <button className="shrink-0 font-semibold text-accent" onClick={() => openExternal(`https://yandex.ru/maps/?text=${encodeURIComponent([l.locality, l.address].filter(Boolean).join(", "))}`)}>
-          На карте
+      {/* Адрес плашкой: город и улица крупно, район и про квартиру — строкой ниже; справа — открыть в Яндекс Картах */}
+      <div className="card mt-3 px-4 py-3.5">
+        <div className="flex gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
+            <MapPin size={18} aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] leading-snug font-semibold text-ink">{[l.locality, l.address].filter(Boolean).join(", ")}</div>
+            <div className="mt-0.5 text-[13px] leading-snug text-dim">{l.district ? `${l.district} район. ` : ""}Квартиру хозяин пришлёт после подтверждения</div>
+          </div>
+        </div>
+        {/* Улица и дом, без квартиры */}
+        <button
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-full border border-line py-2 text-[14px] font-semibold text-accent active:bg-surface-2"
+          onClick={() => openExternal(`https://yandex.ru/maps/?text=${encodeURIComponent([l.locality, l.address].filter(Boolean).join(", "))}`)}
+        >
+          <MapIcon size={15} aria-hidden /> На карте
         </button>
       </div>
-      <p className="mt-0.5 pl-[21px] text-[13px] text-dim">{l.district ? `${l.district} район. ` : ""}Номер квартиры хозяин пришлёт после подтверждения</p>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[14px] text-ink">
         <li className="flex items-center gap-1.5">
           <Users size={15} /> {guestsUpTo(l.guests)}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Camera, ChevronDown, Eye, Heart, Home, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Camera, ChevronDown, Eye, Heart, Home, LoaderCircle, Phone, Plus, Trash2 } from "lucide-react";
 import { MAX_PHOTOS, listingTitle } from "../../../shared/catalog.ts";
 import { addDays, guestsText, nightsText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { hasContacts } from "../../../shared/trust.ts";
@@ -44,6 +44,18 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
       load();
     } catch (e) {
       setNote(errorText(e));
+    }
+  };
+
+  /** Гость выехал — убрать бронь из «Ближайших заездов» (у гостя она останется в его истории) */
+  const finish = async (b: BookingView) => {
+    if (!(await ask("Завершить бронь?", { text: "Гость выехал, бронь уйдёт из списка. У гостя она останется в истории, оценку он сможет поставить.", ok: "Завершить" }))) return;
+    setBookings((x) => x.filter((y) => y.id !== b.id));
+    try {
+      await api.hideBooking(b.id);
+    } catch (e) {
+      setNote(errorText(e));
+      load();
     }
   };
 
@@ -101,26 +113,33 @@ export function HostHome(props: { me: Me; onPhone: (p: string) => void; onEdit: 
           <h2 className="mb-2 text-[17px] font-bold text-ink">Ближайшие заезды</h2>
           <ul className="space-y-2">
             {upcoming.map((b) => (
-              <li key={b.id} className="card p-3 text-[14px]">
-                <div className="font-semibold text-ink">
-                  {rangeText(b.checkIn, b.checkOut)} · {b.title}
+              <li key={b.id} className="card px-4 py-3.5 text-[14px]">
+                {/* Строка 1: что за жильё и сумма. Строка 2: даты и гости. Строка 3: номер гостя и действия */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 truncate font-semibold text-ink">{b.title}</div>
+                  <b className="shrink-0 text-ink tabular-nums">{rub(b.total)}</b>
                 </div>
-                {b.checkIn <= today && (
-                  <button className="float-right text-[13px] font-semibold text-bad" onClick={() => noshow(b)}>
-                    Гость не приехал
-                  </button>
+                <div className="mt-0.5 text-dim">
+                  {rangeText(b.checkIn, b.checkOut)}, {guestsText(b.guests)}
+                </div>
+                {b.phone && (
+                  <a className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[14px] font-semibold whitespace-nowrap text-accent tabular-nums" href={`tel:${b.phone}`}>
+                    <Phone size={14} aria-hidden /> {phoneText(b.phone)}
+                  </a>
                 )}
-                <div className="text-dim">
-                  {guestsText(b.guests)}, {rub(b.total)}
-                  {b.phone && (
-                    <>
-                      {" · "}
-                      <a className="font-semibold text-accent" href={`tel:${b.phone}`}>
-                        {phoneText(b.phone)}
-                      </a>
-                    </>
-                  )}
-                </div>
+                {/* Действия — ровной парой одинаковых кнопок. «Завершить» — в день выезда и позже: бронь уйдёт из списка */}
+                {b.checkIn <= today && (
+                  <div className={`mt-2.5 grid gap-2 ${b.checkOut <= today ? "grid-cols-2" : "grid-cols-1"}`}>
+                    <button className="rounded-full border border-line py-2 text-[13px] font-semibold whitespace-nowrap text-bad" onClick={() => noshow(b)}>
+                      Гость не приехал
+                    </button>
+                    {b.checkOut <= today && (
+                      <button className="rounded-full border border-line py-2 text-[13px] font-semibold whitespace-nowrap text-ink" onClick={() => finish(b)}>
+                        Завершить
+                      </button>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
