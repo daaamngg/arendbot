@@ -1,0 +1,8 @@
+node_modules
+dist
+cloud-dist/
+server/.data
+.env*
+!.env.example
+*.log
+*.tmp

@@ -1,0 +1,32 @@
+{
+  "wd3": {
+    "author": "kurmanstaff",
+    "license": "by 2.0",
+    "page": "https://www.flickr.com/photos/62558987@N07/49279793012"
+  },
+  "ozonator": {
+    "author": "KoiQuestion",
+    "license": "by-sa 2.0",
+    "page": "https://www.flickr.com/photos/54028598@N06/31511884561"
+  },
+  "wv1": {
+    "author": "Jacek Halicki",
+    "license": "CC BY-SA 4.0",
+    "page": "https://commons.wikimedia.org/wiki/File:2023_Myjka_do_okien_Karcher_(1).jpg"
+  },
+  "grinder": {
+    "author": "Team Metabo OS",
+    "license": "CC BY-SA 3.0",
+    "page": "https://commons.wikimedia.org/wiki/File:Metabo_1700-Watt-Winkelschleifer_WEA_17-125_Quick.jpg"
+  },
+  "grinder-cordless": {
+    "author": "Team Metabo OS",
+    "license": "CC BY-SA 3.0",
+    "page": "https://commons.wikimedia.org/wiki/File:Metabo_Akku-Flachkopf-Winkelschleifer_mit_5.2_Ah_Akkupack.jpg"
+  },
+  "drill": {
+    "author": "MdeVicente",
+    "license": "CC0",
+    "page": "https://commons.wikimedia.org/wiki/File:Taladro_electrico.png"
+  }
+}

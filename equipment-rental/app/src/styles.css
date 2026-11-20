@@ -1,0 +1,285 @@
+@import "tailwindcss";
+@import "@fontsource/bitter/cyrillic-700.css";
+@import "@fontsource/bitter/latin-700.css";
+@import "@fontsource/onest/cyrillic-400.css";
+@import "@fontsource/onest/cyrillic-500.css";
+@import "@fontsource/onest/cyrillic-600.css";
+
+/* Палитра «Графит» — как у сайта и калькулятора «Домашний эксперт»: бот выглядит частью одного бренда */
+@theme {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f4ece2;
+  --color-ink: #1f1e1c;
+  --color-text: #3e3a34;
+  --color-dim: #6b655c;
+  --color-coffee: #8b5e34;
+  --color-coffee-soft: #f6ede3;
+  --color-wood: #b88550;
+  --color-espresso: #4a3424;
+  /* светлый дуб — шапка каталога */
+  --color-oak: #f1e4d3;
+  --color-line: #ece2d5;
+  --color-ok: #3f6b3a;
+  --color-ok-soft: #e3eedf;
+  --color-bad: #9a3324;
+  --color-bad-soft: #f5e1dd;
+  --color-on-coffee: #ffffff;
+  /* акция: жёлтый «как у техники» и почти чёрный */
+  --color-hot: #f5b800;
+  --color-hot-ink: #15110d;
+  --shadow-pill: 0 1px 2px rgb(59 42 32 / 0.12);
+  --shadow-dialog: 0 8px 32px rgb(0 0 0 / 0.18);
+  --font-display: "Bitter", Georgia, serif;
+  --font-sans: "Onest", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: clip;
+  }
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.45;
+    overflow-x: clip;
+    font-variant-numeric: lining-nums;
+  }
+  button {
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  input,
+  textarea {
+    font: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-coffee);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 0 16px;
+    border-radius: 14px;
+    font-weight: 600;
+    transition: transform 0.08s ease;
+  }
+  .btn:active {
+    transform: scale(0.98);
+  }
+  .btn-main {
+    background: var(--color-coffee);
+    color: var(--color-on-coffee);
+  }
+  .btn-line {
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+  .btn:disabled {
+    background: var(--color-surface-2);
+    color: var(--color-dim);
+    border-color: var(--color-surface-2);
+    cursor: not-allowed;
+    transform: none;
+  }
+  .card {
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    border-radius: 18px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .field {
+    width: 100%;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    border-radius: 12px;
+    padding: 12px;
+    color: var(--color-ink);
+  }
+  /* Закрытый или занятый день — зачёркнут косой чертой */
+  .day-off {
+    background: linear-gradient(to top right, transparent calc(50% - 1px), var(--color-dim) 50%, transparent calc(50% + 1px)), var(--color-surface-2);
+    color: var(--color-dim);
+  }
+  .screen-in {
+    animation: screen-in 0.22s ease-out both;
+  }
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Акция ----------------------------------------------------------------------------
+   Всё движение — только transform/opacity: браузер считает его на видеокарте, макет не пересчитывается */
+
+/* Подсказка на ползунке: по тексту пробегает блик */
+.shimmer {
+  background: linear-gradient(110deg, var(--color-dim) 42%, var(--color-surface) 50%, var(--color-dim) 58%) 0 0 / 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* Закрытый подарок раз в несколько секунд подпрыгивает и качается — зовёт открыть */
+.gift-wiggle {
+  animation: gift-wiggle 3.2s ease-in-out infinite;
+}
+@keyframes gift-wiggle {
+  0%,
+  70%,
+  100% {
+    transform: none;
+  }
+  76% {
+    transform: translateY(-6px) rotate(-8deg);
+  }
+  82% {
+    transform: translateY(-6px) rotate(7deg);
+  }
+  88% {
+    transform: translateY(0) rotate(-3deg);
+  }
+}
+
+/* Таймер: сменившаяся цифра въезжает сверху */
+.tick {
+  display: inline-block;
+  animation: tick 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes tick {
+  from {
+    opacity: 0;
+    transform: translateY(-55%);
+  }
+}
+/* Огонёк на конце «фитиля» */
+.fuse-spark {
+  animation: spark 1.2s ease-in-out infinite;
+}
+@keyframes spark {
+  50% {
+    transform: translate(50%, -50%) scale(1.35);
+    opacity: 0.75;
+  }
+}
+/* Шапка каталога: светящиеся пятна (размытые круги), стекло и блик */
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(36px);
+  pointer-events: none;
+  animation: orb 14s ease-in-out infinite alternate;
+}
+.orb-a {
+  width: 220px;
+  height: 220px;
+  left: -60px;
+  top: -70px;
+  background: rgb(245 184 0 / 0.55);
+}
+.orb-b {
+  width: 200px;
+  height: 200px;
+  right: -50px;
+  top: 30px;
+  background: rgb(184 133 80 / 0.55);
+  animation-delay: -5s;
+}
+.orb-c {
+  width: 180px;
+  height: 180px;
+  left: 35%;
+  bottom: -90px;
+  background: rgb(240 120 50 / 0.35);
+  animation-delay: -9s;
+}
+@keyframes orb {
+  to {
+    transform: translate(24px, 18px) scale(1.12);
+  }
+}
+.glass {
+  background: rgb(255 255 255 / 0.42);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  box-shadow: 0 10px 30px rgb(74 52 36 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.9);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+/* Стекло поверх фото — плотнее, чтобы текст читался на любом снимке */
+.glass-strong {
+  background: rgb(255 255 255 / 0.88);
+}
+/* Заголовок с градиентом: от тёмного дерева к светлому */
+.glass-title {
+  background: linear-gradient(100deg, var(--color-espresso) 20%, var(--color-coffee) 60%, var(--color-wood));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* Блик: косая светлая полоса пробегает по стеклу раз в 6 секунд */
+.glass-shine {
+  position: absolute;
+  inset: -20% auto -20% 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.65), transparent);
+  transform: translateX(-160%) skewX(-18deg);
+  animation: glass-shine 6s ease-in-out 1s infinite;
+  pointer-events: none;
+}
+@keyframes glass-shine {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  28%,
+  100% {
+    transform: translateX(330%) skewX(-18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-in,
+  .shimmer,
+  .gift-wiggle,
+  .tick,
+  .fuse-spark,
+  .orb,
+  .glass-shine {
+    animation: none;
+  }
+}

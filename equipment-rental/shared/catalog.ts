@@ -1,0 +1,158 @@
+import type { Item } from "./types.ts";
+
+// Оборудование Сергея — его список от 19.11.2026 и цены из объявлений на Авито («цены такие же»).
+// Где цены в объявлениях нет — priceDay = null, «по звонку». Владелец меняет цены сам в «Управлении»
+// (хранятся в базе поверх этого списка). Фото — пока из интернета (Wikimedia Commons), заменим на его.
+export const CATEGORIES = [
+  { id: "clean", title: "Клининг" },
+  { id: "tools", title: "Инструмент" },
+] as const;
+
+/** Допы к отбойнику и перфоратору — «комбо допы» из списка Сергея */
+const DEMOLITION_EXTRAS = "Можно добавить кувалду, молоток-демонтажник, лом и гвоздодёр";
+
+export const ITEMS: Item[] = [
+  {
+    id: "puzzi",
+    category: "clean",
+    title: "Моющий пылесос Kärcher Puzzi 8/1",
+    short: "Химчистка мебели, ковров и салона авто",
+    specs: [
+      "Глубокая чистка мягкой мебели, ковров, матрасов и салона авто",
+      "Удаляет пятна и запахи",
+      "Средство для мойки: 1 порция бесплатно, дополнительная 15 ₽",
+      "Компрессионный распылитель бесплатно",
+      "Фен для сушки вместе с пылесосом 35 ₽ вместо 45 ₽",
+      "Насадка для мягких напольных покрытий 30 ₽",
+    ],
+    priceDay: 1200,
+    icon: "vacuum",
+    photos: [],
+  },
+  {
+    id: "dryer",
+    category: "clean",
+    title: "Фен для сушки ковров и мебели",
+    short: "Быстрая сушка после химчистки",
+    specs: ["Быстрая сушка после химчистки, уборки или затопления", "Мощный поток воздуха", "Подходит для ковров, мебели и помещений"],
+    priceDay: 350,
+    icon: "fan",
+    photos: [],
+  },
+  {
+    id: "wd3",
+    category: "clean",
+    title: "Строительный пылесос Kärcher WD 3 Premium",
+    short: "Уборка после ремонта",
+    specs: ["Мешок бесплатно", "Дополнительный мешок 20 ₽", "Насадки в комплекте"],
+    priceDay: 700,
+    icon: "vacuum",
+    photos: [],
+  },
+  {
+    id: "sc4",
+    category: "clean",
+    title: "Пароочиститель Kärcher SC 4",
+    short: "Чистка паром без химии",
+    specs: ["Все насадки бесплатно"],
+    priceDay: 800,
+    icon: "steam",
+    photos: [],
+  },
+  {
+    id: "sc2",
+    category: "clean",
+    title: "Пароочиститель Kärcher SC 2 Deluxe",
+    short: "Чистка паром без химии",
+    specs: ["Все насадки бесплатно"],
+    priceDay: 700,
+    icon: "steam",
+    photos: [],
+  },
+  {
+    id: "wv1",
+    category: "clean",
+    title: "Стеклоочиститель Kärcher WV 1",
+    short: "Окна и зеркала без разводов",
+    specs: ["Чистые окна, зеркала и стеклянные поверхности без разводов", "Средство для мойки: 1 порция бесплатно"],
+    priceDay: 400,
+    icon: "window",
+    photos: ["photos/wv1.webp", "photos/wv1-s.webp"],
+    credit: "Фото: Jacek Halicki, CC BY-SA 4.0",
+  },
+  {
+    id: "window-robot",
+    category: "clean",
+    title: "Робот-мойщик окон",
+    short: "Сам моет окна",
+    specs: ["Средство для мойки: 1 порция бесплатно", "В комплекте страховочный трос, ёмкость для жидкости, блок питания и 10 микрофибр", "Пульт управления"],
+    priceDay: 700,
+    icon: "window",
+    photos: [],
+  },
+  {
+    id: "ozonator",
+    category: "clean",
+    title: "Озонатор",
+    short: "Убирает запахи, грибок и бактерии",
+    specs: ["Устраняет запахи", "Убивает грибок, бактерии и микробы", "Помещения до 210 м²"],
+    priceDay: 500,
+    icon: "ozone",
+    photos: [],
+  },
+  {
+    id: "breaker",
+    category: "tools",
+    title: "Отбойный молоток Вихрь ОМ-1750Э",
+    short: "Демонтаж бетона и кирпича",
+    specs: ["Мощность 1750 Вт", "Сила удара 65 Дж", DEMOLITION_EXTRAS],
+    priceDay: 1800,
+    icon: "hammer",
+    photos: [],
+  },
+  {
+    id: "perforator",
+    category: "tools",
+    title: "Перфоратор",
+    short: "Сверление и долбление бетона",
+    specs: ["Сверление и долбление бетона и кирпича", DEMOLITION_EXTRAS],
+    priceDay: null,
+    icon: "drill",
+    photos: [],
+  },
+  {
+    id: "drill",
+    category: "tools",
+    title: "Дрель",
+    short: "Сверление дерева, металла и пластика",
+    specs: ["Сверление дерева, металла и пластика"],
+    priceDay: null,
+    icon: "drill",
+    photos: ["photos/drill.webp", "photos/drill-s.webp"],
+  },
+  {
+    id: "grinder",
+    category: "tools",
+    title: "Болгарка",
+    short: "Резка металла, камня и плитки",
+    specs: ["Резка и шлифовка металла, камня и плитки"],
+    priceDay: null,
+    icon: "grinder",
+    photos: ["photos/grinder.webp", "photos/grinder-s.webp"],
+    credit: "Фото: Team Metabo OS, CC BY-SA 3.0",
+  },
+  {
+    id: "grinder-cordless",
+    category: "tools",
+    title: "Болгарка аккумуляторная",
+    short: "Резка без розетки",
+    specs: ["Работает без розетки", "Резка и шлифовка металла, камня и плитки"],
+    priceDay: null,
+    icon: "grinder",
+    photos: ["photos/grinder-cordless.webp", "photos/grinder-cordless-s.webp"],
+    credit: "Фото: Team Metabo OS, CC BY-SA 3.0",
+  },
+];
+
+export const PHONE = "+7 939 700-12-22";
+export const PHONE_HREF = "tel:+79397001222";
