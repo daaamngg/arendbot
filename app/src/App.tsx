@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorText, type Me, type SearchQuery } from "./lib/api.ts";
+import { api, ApiError, errorText, type Me, type SearchQuery } from "./lib/api.ts";
 import { useLive } from "./lib/live.ts";
 import { bindBackButton, startParam } from "./lib/max.ts";
 import { AdminScreen } from "./screens/Admin.tsx";
@@ -26,14 +26,18 @@ const initialTab: Tab = sp === "host" ? "host" : sp === "admin" ? "admin" : sp.s
 // chat_<id> — переписка из уведомления; l_<id> — объявление по ссылке «Поделиться»
 const initialStack: Screen[] = sp.startsWith("chat_") ? [{ name: "chat", id: sp.slice(5) }] : /^l_[a-z0-9-]{1,36}$/i.test(sp) ? [{ name: "listing", id: sp.slice(2) }] : [];
 
+/** Короткий код ошибки загрузки: 0 — сервер не ответил (нет сети или облако закрыло доступ), 401 — MAX не подписал вход */
+const failCode = (e: unknown) => (e instanceof ApiError ? `${e.status || "нет ответа"}${e.data?.error && e.data.error !== "network" ? ` ${e.data.error}` : ""}` : "ошибка");
+
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
-  const [failed, setFailed] = useState(false);
+  // Почему не загрузилось: код показываем мелко на экране ошибки — по скриншоту сразу видно, что сломалось
+  const [failed, setFailed] = useState<string | false>(false);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [stack, setStack] = useState<Screen[]>(initialStack);
   const [query, setQuery] = useState<SearchQuery>({ guests: 1 });
 
-  const refreshMe = useCallback(() => api.me().then(setMe, () => setFailed(true)), []);
+  const refreshMe = useCallback(() => api.me().then(setMe, (e) => setFailed(failCode(e))), []);
   useEffect(() => {
     refreshMe();
   }, [refreshMe]);
@@ -103,6 +107,7 @@ export default function App() {
         >
           Повторить
         </button>
+        <p className="mt-2 text-[12px] text-dim">Код: {failed}</p>
       </div>
     );
   }
