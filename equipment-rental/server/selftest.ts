@@ -36,7 +36,7 @@ check("чужая подпись 401", (await handleApi(ctx, "/me", { initData: 
 // Каталог
 const items = j(await A("/items")).items;
 check("13 единиц оборудования", items.length === 13);
-check("цены из объявлений", items.find((i: any) => i.id === "breaker")?.priceDay === 1800 && items.find((i: any) => i.id === "drill")?.priceDay === null);
+check("новые цены оборудования", items.find((i: any) => i.id === "perforator")?.priceDay === 700 && items.find((i: any) => i.id === "drill")?.priceDay === 400 && items.find((i: any) => i.id === "grinder")?.priceDay === 500 && items.find((i: any) => i.id === "grinder-cordless")?.priceDay === 800);
 
 // Заявка: без телефона нельзя
 const book = (who: typeof A, from: number, to: number, extra: Record<string, unknown> = {}) =>
@@ -58,7 +58,7 @@ const r1 = await book(A, 2, 4);
 check("заявка создана", r1.status === 200);
 const b1 = j(r1).booking;
 check("3 суток включительно", b1?.days === 3);
-check("цены нет — суммы нет", b1?.total === null);
+check("сумма по цене каталога", b1?.total === 2000);
 check("пересечение занято", (await book(B, 4, 6)).status === 409);
 check("соседние дни свободны", (await book(B, 5, 6)).status === 200);
 const busy = j(await A("/item", { id: "grinder" })).busy;
@@ -123,23 +123,33 @@ const p1 = j(await C("/promo/open")).promoAt;
 ctx.now = () => Date.now() + 3600_000;
 check("время открытия не сбрасывается", j(await C("/promo/open")).promoAt === p1);
 ctx.now = undefined;
+const spin1 = j(await C("/spin"));
+check("при стартовой скидке спин даёт 5% до её конца", spin1.spinPercent === 5 && spin1.spinExpiresAt === p1 + 86400_000);
+check("повторный спин в тот же день запрещён", (await C("/spin")).status === 409);
 const c1 = j(await book(C, 30, 30, { itemId: "drill", delivery: false, address: "" })).booking;
-check("1 сутки — без скидки", c1?.discount === 0 && c1?.total === 6000);
+check("1 сутки — только спин 5%", c1?.discount === 5 && c1?.total === 5700);
 await C("/cancel", { id: c1.id });
 const c2 = j(await book(C, 32, 33, { itemId: "drill", delivery: true })).booking;
-check("первая аренда от 2 суток −15%", c2?.discount === 15 && c2?.total === 10200 + 500);
-check("скидка видна владельцу", sent.some((s) => s.includes("Акция: скидка 15%")));
+check("первая аренда от 2 суток −20%", c2?.discount === 20 && c2?.total === 9600 + 500);
+check("скидка видна владельцу", sent.some((s) => s.includes("Акция: скидка 20%")));
 check("подарок использован", j(await C("/me")).promoUsed === true);
 const c3 = j(await book(C, 40, 41, { itemId: "drill", delivery: false, address: "" })).booking;
-check("вторая аренда без скидки", c3?.discount === 0);
+check("после первой аренды остаётся скидка спина", c3?.discount === 5);
 const D = as(104);
 await D("/phone", { phone: "+79990007788", consent: true });
 await D("/promo/open");
-// Подарок открыт 3 суток и минуту назад (подпись initData сдвигать нельзя — сдвигаем время открытия)
+// Подарок открыт сутки и минуту назад (подпись initData сдвигать нельзя — сдвигаем время открытия)
 const du = await ctx.db.get<any>("user", "104");
-await ctx.db.put({ kind: "user", id: "104", data: { ...du, promoAt: Date.now() - 3 * 86400_000 - 60_000 } });
+await ctx.db.put({ kind: "user", id: "104", data: { ...du, promoAt: Date.now() - 86400_000 - 60_000 } });
 const d1 = j(await book(D, 50, 52, { itemId: "drill", delivery: false, address: "" })).booking;
-check("через 3 суток сгорела", d1?.discount === 0);
+check("через сутки сгорела", d1?.discount === 0);
+const firstSpins = await Promise.all([D("/spin"), D("/spin")]);
+check("два одновременных спина — только один приз", firstSpins.filter((r) => r.status === 200).length === 1 && firstSpins.filter((r) => r.status === 409).length === 1);
+const firstSpin = j(firstSpins.find((r) => r.status === 200)!);
+check("без стартовой акции приз 5, 10 или 15% на сутки", [5, 10, 15].includes(firstSpin.spinPercent) && firstSpin.spinExpiresAt - firstSpin.spinAt === 86400_000);
+const dUser = await ctx.db.get<any>("user", "104");
+await ctx.db.put({ kind: "user", id: "104", data: { ...dUser, spinAt: Date.now() - 86400_000 - 1 } });
+check("через 24 часа можно крутить снова", (await D("/spin")).status === 200);
 
 // Проверочная заявка владельца: видна только ему, дни для клиентов не занимает, другим владельцам не приходит
 const O2 = as(501);

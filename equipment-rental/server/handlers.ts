@@ -1,7 +1,7 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { ITEMS, PHONE } from "../shared/catalog.ts";
 import { addDays, dayText, daysCount, daysOf, daysText, isDate, rangeText, rub, todaySamara } from "../shared/dates.ts";
-import { PROMO, promoActive } from "../shared/promo.ts";
+import { PROMO, SPIN_COOLDOWN, activeDiscount, promoActive, promoEnd } from "../shared/promo.ts";
 import { DAYS_AHEAD, DELIVERY_PRICE, MAX_DAYS, type Booking, type Item, type User } from "../shared/types.ts";
 import type { DocTable } from "./docs.ts";
 import { verifyInitData, type VerifiedInit } from "./init-data.ts";
@@ -194,6 +194,9 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
         owner: await isOwner(ctx, uid),
         demo: ctx.config.allowBrowser,
         promoAt: user.promoAt ?? null,
+        spinAt: user.spinAt ?? null,
+        spinPercent: user.spinPercent ?? null,
+        spinExpiresAt: user.spinExpiresAt ?? null,
         // скидка — только на первую аренду: есть живая заявка или аренда — уже не положена
         promoUsed: (await ctx.db.find<Booking>("booking", "g2", String(uid))).some((b) => ACTIVE.includes(b.status)),
       });
@@ -203,6 +206,20 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       if (user.promoAt) return ok({ promoAt: user.promoAt });
       await ctx.db.put({ kind: "user", id: String(uid), data: { ...user, promoAt: t } });
       return ok({ promoAt: t });
+    }
+
+    case "/spin": {
+      const reward = await ctx.db.tx(async (tx) => {
+        const current = (await tx.get<User>("user", String(uid))) ?? user;
+        if (current.spinAt && t < current.spinAt + SPIN_COOLDOWN) return null;
+        const bookings = await tx.find<Booking>("booking", "g2", String(uid));
+        const starter = promoActive(current.promoAt, t) && !bookings.some((b) => ACTIVE.includes(b.status));
+        const percent = starter ? 5 : [5, 10, 15][randomInt(3)];
+        const expiresAt = starter ? promoEnd(current.promoAt!) : t + SPIN_COOLDOWN;
+        await tx.put({ kind: "user", id: String(uid), data: { ...current, spinAt: t, spinPercent: percent, spinExpiresAt: expiresAt } });
+        return { spinAt: t, spinPercent: percent, spinExpiresAt: expiresAt };
+      });
+      return reward ? ok(reward) : fail(409, "spin cooldown");
     }
 
     case "/items":
@@ -242,7 +259,8 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       const address = delivery ? clean(body?.address, 200, true) : "";
       if (delivery && address.length < 5) return fail(400, "address required");
       // Акция: подарок открыт и не сгорел, аренда от minDays суток и это первая аренда человека
-      const discount = promoActive(user.promoAt, t) && days >= PROMO.minDays && !all.some((x) => ACTIVE.includes(x.status)) ? PROMO.percent : 0;
+      const promoUsed = all.some((x) => ACTIVE.includes(x.status));
+      const discount = activeDiscount(user.promoAt, promoUsed, user.spinPercent, user.spinExpiresAt, t, days);
       const b: Booking = {
         id: randomUUID().slice(0, 8),
         itemId: item.id,

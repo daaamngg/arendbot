@@ -4,10 +4,11 @@ import { rub } from "../../../shared/dates.ts";
 import type { Item } from "../../../shared/types.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
 import { Promo } from "../ui/Promo.tsx";
+import { Spin } from "../ui/Spin.tsx";
 import { ItemIcon, ItemPicture, Spinner } from "../ui/ui.tsx";
 
 /** Каталог: стеклянная шапка с условиями, подарок и оборудование по разделам — плитками по две в ряд */
-export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => void; onOpen: (id: string) => void }) {
+export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void; onOpen: (id: string) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [delivery, setDelivery] = useState(500);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
           <span className="glass-shine" aria-hidden />
         </div>
         <Promo me={props.me} onOpened={props.onPromo} />
+        <Spin me={props.me} onSpin={props.onSpin} />
       </section>
       {error && <p className="text-bad">{error}</p>}
       {!items && !error && <Spinner />}

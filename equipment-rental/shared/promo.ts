@@ -4,7 +4,7 @@
 export const PROMO = {
   percent: 15,
   /** сколько суток действует открытый подарок */
-  days: 3,
+  days: 1,
   /** скидка — на аренду от стольких суток */
   minDays: 2,
   title: "на первую аренду",
@@ -13,3 +13,9 @@ export const PROMO = {
 export const promoEnd = (openedAt: number) => openedAt + PROMO.days * 86400_000;
 /** Действует ли подарок сейчас */
 export const promoActive = (openedAt: number | null | undefined, now: number) => !!openedAt && now < promoEnd(openedAt);
+export const SPIN_COOLDOWN = 86_400_000;
+export const activeDiscount = (promoAt: number | null | undefined, promoUsed: boolean, spinPercent: number | null | undefined, spinExpiresAt: number | null | undefined, now: number, rentalDays = PROMO.minDays) => {
+  const starter = rentalDays >= PROMO.minDays && !promoUsed && promoActive(promoAt, now) ? PROMO.percent : 0;
+  const spin = spinExpiresAt && now < spinExpiresAt ? (spinPercent ?? 0) : 0;
+  return starter + spin;
+};

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Check, Phone, Store, Truck, X } from "lucide-react";
 import { PHONE_HREF } from "../../../shared/catalog.ts";
 import { daysCount, daysText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
-import { PROMO, promoActive } from "../../../shared/promo.ts";
+import { PROMO, activeDiscount } from "../../../shared/promo.ts";
 import type { Item } from "../../../shared/types.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
 import { haptic } from "../lib/max.ts";
@@ -37,7 +37,7 @@ export function ItemScreen(props: { id: string; me: Me; onPhone: (p: string) => 
   const days = from && to ? daysCount(from, to) : 0;
   const deliveryCost = delivery ? data.delivery : 0;
   // Та же проверка акции, что на сервере: подарок открыт и не сгорел, первая аренда, от minDays суток
-  const discount = promoActive(props.me.promoAt, Date.now()) && !props.me.promoUsed && days >= PROMO.minDays ? PROMO.percent : 0;
+  const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, Date.now(), days);
   const total = item.priceDay != null && days ? Math.round((item.priceDay * days * (100 - discount)) / 100) + deliveryCost : null;
   const addressOk = !delivery || address.trim().length >= 5;
   // Чего не хватает до заявки — подсказка внизу вместо немой серой кнопки

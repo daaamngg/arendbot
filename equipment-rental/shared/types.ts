@@ -65,4 +65,7 @@ export interface User {
   createdAt: number;
   /** когда открыл подарок-акцию (shared/promo.ts) */
   promoAt?: number | null;
+  spinAt?: number | null;
+  spinPercent?: number | null;
+  spinExpiresAt?: number | null;
 }

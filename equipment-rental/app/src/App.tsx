@@ -125,7 +125,7 @@ export default function App() {
   } else if (tab === "owner" && me.owner) {
     content = <OwnerScreen onCalendar={(item) => push({ name: "calendar", item })} />;
   } else {
-    content = <CatalogScreen me={me} onPromo={(promoAt) => setMe((x) => (x ? { ...x, promoAt } : x))} onOpen={(id) => push({ name: "item", id })} />;
+    content = <CatalogScreen me={me} onPromo={(promoAt) => setMe((x) => (x ? { ...x, promoAt } : x))} onSpin={(reward) => setMe((x) => (x ? { ...x, ...reward } : x))} onOpen={(id) => push({ name: "item", id })} />;
   }
 
   return (
