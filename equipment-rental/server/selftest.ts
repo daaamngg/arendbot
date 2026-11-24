@@ -3,6 +3,7 @@ import { memoryTable } from "./docs.ts";
 import { decideDeadline, handleApi, processUpdate, sweep, type Ctx } from "./handlers.ts";
 import { maxApi } from "./max-api.ts";
 import { signedInit } from "./selftest-init.ts";
+import { spinReward } from "../shared/promo.ts";
 
 // Самопроверка без сети: npm run selftest. Клиенты — через настоящий initData, владелец — по коду /admin
 const TOKEN = "test-token";
@@ -28,6 +29,7 @@ const B = as(102);
 const OWNER = as(500);
 const d = (n: number) => addDays(todaySamara(), n);
 const j = (r: { json: unknown }) => r.json as any;
+check("шансы спина 70/25/5", spinReward(0) === 5 && spinReward(69) === 5 && spinReward(70) === 10 && spinReward(94) === 10 && spinReward(95) === 15 && spinReward(99) === 15);
 
 // Без MAX — нельзя
 check("без initData 401", (await handleApi(ctx, "/me", {})).status === 401);

@@ -14,6 +14,8 @@ export const promoEnd = (openedAt: number) => openedAt + PROMO.days * 86400_000;
 /** Действует ли подарок сейчас */
 export const promoActive = (openedAt: number | null | undefined, now: number) => !!openedAt && now < promoEnd(openedAt);
 export const SPIN_COOLDOWN = 86_400_000;
+/** Ежедневный спин без стартовой акции: 5% — 70%, 10% — 25%, 15% — 5%. */
+export const spinReward = (draw: number): 5 | 10 | 15 => draw < 70 ? 5 : draw < 95 ? 10 : 15;
 export const activeDiscount = (promoAt: number | null | undefined, promoUsed: boolean, spinPercent: number | null | undefined, spinExpiresAt: number | null | undefined, now: number, rentalDays = PROMO.minDays) => {
   const starter = rentalDays >= PROMO.minDays && !promoUsed && promoActive(promoAt, now) ? PROMO.percent : 0;
   const spin = spinExpiresAt && now < spinExpiresAt ? (spinPercent ?? 0) : 0;

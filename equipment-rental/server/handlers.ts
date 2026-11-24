@@ -1,7 +1,7 @@
 import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { ITEMS, PHONE } from "../shared/catalog.ts";
 import { addDays, dayText, daysCount, daysOf, daysText, isDate, rangeText, rub, todaySamara } from "../shared/dates.ts";
-import { PROMO, SPIN_COOLDOWN, activeDiscount, promoActive, promoEnd } from "../shared/promo.ts";
+import { PROMO, SPIN_COOLDOWN, activeDiscount, promoActive, promoEnd, spinReward } from "../shared/promo.ts";
 import { DAYS_AHEAD, DELIVERY_PRICE, MAX_DAYS, type Booking, type Item, type User } from "../shared/types.ts";
 import type { DocTable } from "./docs.ts";
 import { verifyInitData, type VerifiedInit } from "./init-data.ts";
@@ -214,7 +214,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
         if (current.spinAt && t < current.spinAt + SPIN_COOLDOWN) return null;
         const bookings = await tx.find<Booking>("booking", "g2", String(uid));
         const starter = promoActive(current.promoAt, t) && !bookings.some((b) => ACTIVE.includes(b.status));
-        const percent = starter ? 5 : [5, 10, 15][randomInt(3)];
+        const percent = starter ? 5 : spinReward(randomInt(100));
         const expiresAt = starter ? promoEnd(current.promoAt!) : t + SPIN_COOLDOWN;
         await tx.put({ kind: "user", id: String(uid), data: { ...current, spinAt: t, spinPercent: percent, spinExpiresAt: expiresAt } });
         return { spinAt: t, spinPercent: percent, spinExpiresAt: expiresAt };
