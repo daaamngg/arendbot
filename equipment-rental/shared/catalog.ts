@@ -27,7 +27,7 @@ export const ITEMS: Item[] = [
     ],
     priceDay: 1200,
     icon: "vacuum",
-    photos: [],
+    photos: ["photos/puzzi.png"],
   },
   {
     id: "dryer",
@@ -37,7 +37,7 @@ export const ITEMS: Item[] = [
     specs: ["Быстрая сушка после химчистки, уборки или затопления", "Мощный поток воздуха", "Подходит для ковров, мебели и помещений"],
     priceDay: 350,
     icon: "fan",
-    photos: [],
+    photos: ["photos/dryer.png"],
   },
   {
     id: "wd3",
@@ -47,7 +47,7 @@ export const ITEMS: Item[] = [
     specs: ["Мешок бесплатно", "Дополнительный мешок 20 ₽", "Насадки в комплекте"],
     priceDay: 700,
     icon: "vacuum",
-    photos: [],
+    photos: ["photos/wd3.png"],
   },
   {
     id: "sc4",
@@ -57,7 +57,7 @@ export const ITEMS: Item[] = [
     specs: ["Все насадки бесплатно"],
     priceDay: 800,
     icon: "steam",
-    photos: [],
+    photos: ["photos/sc4.png"],
   },
   {
     id: "sc2",
@@ -67,7 +67,7 @@ export const ITEMS: Item[] = [
     specs: ["Все насадки бесплатно"],
     priceDay: 700,
     icon: "steam",
-    photos: [],
+    photos: ["photos/sc2.png"],
   },
   {
     id: "wv1",
@@ -88,7 +88,7 @@ export const ITEMS: Item[] = [
     specs: ["Средство для мойки: 1 порция бесплатно", "В комплекте страховочный трос, ёмкость для жидкости, блок питания и 10 микрофибр", "Пульт управления"],
     priceDay: 700,
     icon: "window",
-    photos: [],
+    photos: ["photos/window-robot.png"],
   },
   {
     id: "ozonator",
@@ -98,7 +98,7 @@ export const ITEMS: Item[] = [
     specs: ["Устраняет запахи", "Убивает грибок, бактерии и микробы", "Помещения до 210 м²"],
     priceDay: 500,
     icon: "ozone",
-    photos: [],
+    photos: ["photos/ozonator.png"],
   },
   {
     id: "breaker",
@@ -108,7 +108,7 @@ export const ITEMS: Item[] = [
     specs: ["Мощность 1750 Вт", "Сила удара 65 Дж", DEMOLITION_EXTRAS],
     priceDay: 1800,
     icon: "hammer",
-    photos: [],
+    photos: ["photos/breaker.png"],
   },
   {
     id: "perforator",
