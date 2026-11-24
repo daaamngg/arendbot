@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronRight, Gift, X } from "lucide-react";
 import { SPIN_COOLDOWN, activeDiscount, promoActive } from "../../../shared/promo.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
@@ -9,7 +10,7 @@ const tools = [
   { image: "./photos/grinder-s.webp", title: "Болгарка" },
   { image: "./photos/wv1-s.webp", title: "Стеклоочиститель" },
 ];
-const raffle = [
+const showcase = [
   { image: "./photos/raffle-phone.png", title: "iPhone" },
   { image: "./photos/raffle-tablet.png", title: "iPad" },
   { image: "./photos/raffle-console.png", title: "PlayStation" },
@@ -91,7 +92,7 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
         </button>
       )}
 
-      {open && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={() => setOpen(false)}>
+      {open && createPortal(<div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={() => setOpen(false)}>
         <section role="dialog" aria-modal="true" aria-label="Ежедневный бесплатный спин" className="max-h-[92dvh] w-full max-w-[540px] overflow-y-auto rounded-t-3xl bg-surface p-4 text-ink shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-start gap-3">
             <div className="flex-1">
@@ -104,11 +105,12 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
             <div className="flex gap-2" style={{ transform: `translateX(calc(50% - 48px - ${offset * 104}px))`, transition: motion && rolling ? "transform 2.3s cubic-bezier(.12,.72,.16,1)" : "none" }}>
               {displaySlots.map((percent, i) => {
-                const card = tools[i % tools.length];
+                const gadget = i === 3 ? showcase[0] : i === 8 ? showcase[1] : i === 13 ? showcase[2] : null;
+                const card = gadget ?? tools[i % tools.length];
                 return <div key={i} className="flex w-24 shrink-0 flex-col items-center rounded-xl bg-white p-2 text-center shadow-sm">
                   <img src={card.image} alt="" className="size-14 object-contain" />
                   <span className="text-[11px] text-dim">{card.title}</span>
-                  <b className="text-[15px] text-coffee">−{percent}%</b>
+                  <b className="text-[15px] text-coffee">{gadget ? "★" : `−${percent}%`}</b>
                 </div>;
               })}
             </div>
@@ -117,13 +119,8 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
           <button type="button" className="btn btn-main mt-4 w-full" disabled={busy || !available} onClick={spin}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
-          <div className="mt-5 border-t border-line pt-4">
-            <p className="text-[13px] font-semibold">Планируемый отдельный розыгрыш</p>
-            <p className="text-[11px] text-dim">Эти предметы не выпадают в ежедневном спине. Условия объявим отдельно.</p>
-            <div className="mt-2 grid grid-cols-3 gap-2">{raffle.map((item) => <div key={item.title} className="rounded-xl bg-white p-2 text-center"><img src={item.image} alt="" loading="lazy" className="mx-auto h-16 w-full object-contain" /><span className="text-[11px] font-medium">{item.title}</span></div>)}</div>
-          </div>
         </section>
-      </div>}
+      </div>, document.body)}
     </>
   );
 }
