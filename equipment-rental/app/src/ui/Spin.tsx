@@ -4,6 +4,7 @@ import { ChevronRight, Gift, X } from "lucide-react";
 import { SPIN_COOLDOWN, activeDiscount, promoActive } from "../../../shared/promo.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
 import { haptic } from "../lib/max.ts";
+import { Promo } from "./Promo.tsx";
 
 const tools = [
   { image: "./photos/drill-s.webp", title: "Дрель" },
@@ -19,7 +20,7 @@ const showcase = [
 const slots: (5 | 10 | 15)[] = [5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 15];
 const clock = (left: number) => `${String(Math.floor(left / 3600)).padStart(2, "0")}:${String(Math.floor(left / 60) % 60).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
 
-export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void }) {
+export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void }) {
   const [now, setNow] = useState(Date.now());
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,6 +47,7 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
   const displaySlots = starter ? slots.map(() => 5 as const) : slots;
   const spinActive = !!props.me.spinExpiresAt && now < props.me.spinExpiresAt;
   const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now);
+  const oneDayDiscount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now, 1);
   const left = Math.max(0, Math.ceil((next - now) / 1000));
 
   const spin = async () => {
@@ -78,16 +80,16 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
 
   return (
     <>
-      {spinActive ? (
+      {spinActive || starter ? (
         <button type="button" className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-surface px-3 py-2.5 text-left text-ink shadow-[0_6px_18px_rgb(74_52_36/0.1)]" onClick={() => setOpen(true)}>
           <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-hot text-hot-ink"><Gift size={19} /></span>
-          <span className="min-w-0 flex-1 text-[13px] font-semibold">Ваша скидка −{discount}% <span className="block text-[11px] font-normal text-dim">действует до {new Date(props.me.spinExpiresAt!).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
+          <span className="min-w-0 flex-1 text-[13px] font-semibold">Ваши бонусы: до −{discount}% <span className="block text-[11px] font-normal text-dim">1 сутки −{oneDayDiscount}% · от 2 суток −{discount}%</span></span>
           <ChevronRight size={17} className="shrink-0 text-coffee" />
         </button>
       ) : (
         <button type="button" className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-hot px-4 py-3 text-left text-hot-ink shadow-[0_6px_18px_rgb(245_184_0/0.3)]" onClick={() => setOpen(true)}>
           <Gift size={22} className="shrink-0" />
-          <span className="flex-1 text-[15px] font-bold">{available ? "Забрать бонус дня" : `Следующий бонус через ${clock(left)}`}</span>
+          <span className="flex-1 text-[15px] font-bold">Бонусы и скидки</span>
           <ChevronRight size={20} />
         </button>
       )}
@@ -101,11 +103,13 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
             </div>
             <button type="button" className="grid size-9 place-items-center rounded-full bg-coffee-soft text-coffee" aria-label="Закрыть" onClick={() => setOpen(false)}><X size={19} /></button>
           </div>
+          <Promo me={props.me} onOpened={props.onPromo} />
+          {(starter || spinActive) && <div className="mt-4 rounded-xl bg-coffee-soft p-3 text-[13px] text-coffee"><b>Ваша общая скидка</b><p className="mt-1">На 1 сутки: −{oneDayDiscount}%. От 2 суток: −{discount}%.</p><p className="mt-1 text-[11px]">Стартовые 15% действуют на первую аренду от 2 суток. Награда спина действует на любой срок. Скидки складываются, срок не продлевается.</p></div>}
           <div className="relative mt-4 overflow-hidden rounded-xl bg-coffee-soft py-3">
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
             <div className="flex gap-2" style={{ transform: `translateX(calc(50% - 48px - ${offset * 104}px))`, transition: motion && rolling ? "transform 2.3s cubic-bezier(.12,.72,.16,1)" : "none" }}>
               {displaySlots.map((percent, i) => {
-                const gadget = i === 3 ? showcase[0] : i === 8 ? showcase[1] : i === 13 ? showcase[2] : null;
+                const gadget = i >= 14 && i <= 16 ? showcase[i - 14] : null;
                 const card = gadget ?? tools[i % tools.length];
                 return <div key={i} className="flex w-24 shrink-0 flex-col items-center rounded-xl bg-white p-2 text-center shadow-sm">
                   <img src={card.image} alt="" className="size-14 object-contain" />
@@ -115,6 +119,7 @@ export function Spin(props: { me: Me; onSpin: (reward: { spinAt: number; spinPer
               })}
             </div>
           </div>
+          <div className="mt-2 flex items-center justify-center gap-2">{showcase.map((item) => <img key={item.title} src={item.image} alt={item.title} className="size-10 rounded-lg bg-white object-contain p-1" />)}</div>
           <p className="mt-3 text-[12px] text-dim">{starter ? "Пока действуют стартовые 15%, спин добавит 5% без продления срока." : "Шансы: скидка 5% — 70%, 10% — 25%, 15% — 5%. Скидка действует 24 часа."}</p>
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}

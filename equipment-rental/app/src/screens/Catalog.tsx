@@ -3,7 +3,6 @@ import { CATEGORIES } from "../../../shared/catalog.ts";
 import { rub } from "../../../shared/dates.ts";
 import type { Item } from "../../../shared/types.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
-import { Promo } from "../ui/Promo.tsx";
 import { Spin } from "../ui/Spin.tsx";
 import { ItemIcon, ItemPicture, Spinner } from "../ui/ui.tsx";
 
@@ -38,8 +37,7 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
           </div>
           <span className="glass-shine" aria-hidden />
         </div>
-        <Promo me={props.me} onOpened={props.onPromo} />
-        <Spin me={props.me} onSpin={props.onSpin} />
+        <Spin me={props.me} onPromo={props.onPromo} onSpin={props.onSpin} />
       </section>
       {error && <p className="text-bad">{error}</p>}
       {!items && !error && <Spinner />}
