@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, Gift, X } from "lucide-react";
 import { SPIN_COOLDOWN, activeDiscount, promoActive } from "../../../shared/promo.ts";
@@ -18,6 +18,10 @@ const showcase = [
 ];
 // Частота карточек соответствует шансам скидок: 70% / 25% / 5%.
 const slots: (5 | 10 | 15)[] = [5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 15];
+const REEL_HEAD = 4;
+const CARD_STEP = 104;
+const SPIN_MS = 7200;
+const reelPosition = (index: number) => `translate3d(-${48 + index * CARD_STEP}px, 0, 0)`;
 const clock = (left: number) => `${String(Math.floor(left / 3600)).padStart(2, "0")}:${String(Math.floor(left / 60) % 60).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
 
 export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void }) {
@@ -26,8 +30,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const [busy, setBusy] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [error, setError] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [motion, setMotion] = useState(false);
+  const [offset, setOffset] = useState(REEL_HEAD);
+  const reelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -46,8 +50,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const available = now >= next;
   const starter = !props.me.promoUsed && promoActive(props.me.promoAt, now);
   const displaySlots = useMemo(() => starter ? slots.map(() => 5 as const) : slots, [starter]);
-  // После точки остановки должны оставаться карточки: иначе конец ленты уходит из окна.
-  const reelSlots = useMemo(() => [...displaySlots, ...displaySlots.slice(0, 6)], [displaySlots]);
+  // Карточки до и после основной ленты сохраняют заполненным окно у обоих краёв.
+  const reelSlots = useMemo(() => [...displaySlots.slice(-REEL_HEAD), ...displaySlots, ...displaySlots.slice(0, 6)], [displaySlots]);
   const spinActive = !!props.me.spinExpiresAt && now < props.me.spinExpiresAt;
   const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now);
   const oneDayDiscount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now, 1);
@@ -61,15 +65,21 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
     try {
       const reward = preview ? await api.spinPreview() : await api.spin();
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const target = starter ? 17 : reward.spinPercent === 15 ? 19 : reward.spinPercent === 10 ? 18 : 17;
-      setOffset(0);
-      setMotion(false);
+      const target = REEL_HEAD + (starter ? 17 : reward.spinPercent === 15 ? 19 : reward.spinPercent === 10 ? 18 : 17);
+      setOffset(REEL_HEAD);
       setRolling(true);
       if (!reduced) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        setMotion(true);
-        setOffset(target);
-        await new Promise((resolve) => setTimeout(resolve, 4800));
+        const animation = reelRef.current?.animate(
+          [{ transform: reelPosition(REEL_HEAD) }, { transform: reelPosition(target) }],
+          { duration: SPIN_MS, easing: "cubic-bezier(.16,.62,.22,1)", fill: "forwards" },
+        );
+        if (animation) {
+          await Promise.race([animation.finished.catch(() => {}), new Promise((resolve) => setTimeout(resolve, SPIN_MS + 500))]);
+          setOffset(target);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          animation.cancel();
+        } else setOffset(target);
       } else setOffset(target);
       if (!preview) props.onSpin(reward as { spinAt: number; spinPercent: number; spinExpiresAt: number });
       haptic("success");
@@ -110,13 +120,13 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           {(starter || spinActive) && <div className="mt-4 rounded-xl bg-coffee-soft p-3 text-[13px] text-coffee"><b>Ваша общая скидка</b><p className="mt-1">На 1 сутки: −{oneDayDiscount}%. От 2 суток: −{discount}%.</p><p className="mt-1 text-[11px]">Стартовые 15% действуют на первую аренду от 2 суток. Награда спина действует на любой срок. Скидки складываются, срок не продлевается.</p></div>}
           <div className={`spin-track relative mt-4 overflow-hidden rounded-xl py-3 ${rolling ? "rolling" : ""}`}>
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
-            <div className="spin-reel flex gap-2" style={{ transform: `translate3d(calc(50% - 48px - ${offset * 104}px), 0, 0)`, transition: motion && rolling ? "transform 4.7s cubic-bezier(.12,.72,.16,1)" : "none" }}>
+            <div ref={reelRef} className="spin-reel flex gap-2" style={{ transform: reelPosition(offset) }}>
               {reelSlots.map((percent, i) => {
-                const gadget = i >= 14 && i <= 16 ? showcase[i - 14] : null;
+                const gadget = i >= REEL_HEAD + 14 && i <= REEL_HEAD + 16 ? showcase[i - REEL_HEAD - 14] : null;
                 const card = gadget ?? tools[i % tools.length];
                 return <div key={i} className="flex w-24 shrink-0 flex-col items-center rounded-xl bg-white p-2 text-center shadow-sm">
                   <img src={card.image} alt="" className="size-14 object-contain" />
-                  <span className="text-[11px] text-dim">{card.title}</span>
+                  <span className="w-full text-[11px] leading-tight text-dim" style={{ overflowWrap: "anywhere" }}>{card.title}</span>
                   <b className="text-[15px] text-coffee">{gadget ? "★" : `−${percent}%`}</b>
                 </div>;
               })}

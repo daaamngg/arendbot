@@ -265,7 +265,7 @@
 .spin-dialog { background: linear-gradient(155deg, #fff5cf, #fff 42%, #ffdf91); box-shadow: 0 0 40px rgb(89 48 16 / .55), inset 0 0 24px rgb(255 183 0 / .24); }
 .spin-track { background: linear-gradient(110deg, #6b3515, #e49b22 42%, #4b2410 75%, #ffbd41); box-shadow: 0 0 0 3px #f6c85f, 0 0 26px rgb(111 55 14 / .7); animation: spin-glow 2.2s ease-in-out infinite alternate; }
 .spin-track.rolling { animation: none; }
-.spin-reel { will-change: transform; backface-visibility: hidden; contain: layout paint; }
+.spin-reel { width: max-content; margin-left: 50%; will-change: transform; backface-visibility: hidden; }
 .package-enter { animation: package-enter .6s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes package-enter { from { opacity: 0; transform: translate3d(18px,0,0); } to { opacity: 1; transform: translate3d(0,0,0); } }
 .spin-button { background: linear-gradient(100deg, #8f3f0e, #f5aa22, #9a4610); color: #fff; box-shadow: 0 6px 20px rgb(134 58 9 / .4); }
