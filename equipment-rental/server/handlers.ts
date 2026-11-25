@@ -234,7 +234,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
     }
 
     case "/spin/preview": {
-      if (!(await isOwner(ctx, uid)) || !(await ctx.db.get<number[]>("kv", "preview-spin-users"))?.includes(uid)) return fail(403, "forbidden");
+      if (!(await ctx.db.get<number[]>("kv", "preview-spin-users"))?.includes(uid)) return fail(403, "forbidden");
       const remaining = await ctx.db.tx(async (tx) => {
         const used = (await tx.get<number>("kv", `preview-spin:${uid}`)) ?? 0;
         if (used >= 10) return null;
