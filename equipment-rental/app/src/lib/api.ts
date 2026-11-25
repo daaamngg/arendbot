@@ -59,7 +59,6 @@ export type BookingView = Booking & { title: string };
 export interface Me {
   user: { id: number; name: string | null; phone: string | null };
   owner: boolean;
-  previewRemaining: number | null;
   demo: boolean;
   promoAt: number | null;
   promoUsed: boolean;
@@ -72,7 +71,7 @@ export const api = {
   me: () => post<Me>("/me"),
   promoOpen: () => post<{ promoAt: number }>("/promo/open"),
   spin: () => post<{ spinAt: number; spinPercent: number; spinExpiresAt: number }>("/spin"),
-  spinPreview: () => post<{ spinPercent: number; remaining: number }>("/spin/preview"),
+  spinPreview: () => post<{ spinPercent: number }>("/spin/preview"),
   items: () => post<{ items: Item[]; delivery: number }>("/items"),
   item: (id: string) => post<{ item: Item; busy: string[]; delivery: number }>("/item", { id }),
   phone: (phone: string) => post<{ ok: true }>("/phone", { phone, consent: true }),

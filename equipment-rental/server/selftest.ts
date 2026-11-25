@@ -72,12 +72,6 @@ await processUpdate(ctx, { update_type: "message_created", message: { sender: { 
 check("неверный код", (await OWNER("/owner/bookings")).status === 403);
 await processUpdate(ctx, { update_type: "message_created", message: { sender: { user_id: 500 }, body: { text: "/admin code-123" } } });
 check("владелец по коду", j(await OWNER("/me")).owner === true);
-await ctx.db.put({ kind: "kv", id: "preview-spin-users", data: [500, 102] });
-check("постороннему пробный спин запрещён", (await A("/spin/preview")).status === 403);
-check("разрешённому аккаунту без роли владельца пробный спин доступен", (await B("/spin/preview")).status === 200 && j(await B("/me")).previewRemaining === 9);
-const previews = await Promise.all(Array.from({ length: 10 }, () => OWNER("/spin/preview")));
-check("владельцу выдано ровно 10 пробных спинов", previews.every((r) => r.status === 200) && (await OWNER("/spin/preview")).status === 409);
-check("пробные спины не начисляют скидку", j(await OWNER("/me")).spinAt === null && j(await OWNER("/me")).spinPercent === null);
 check("владельцу видны заявки", j(await OWNER("/owner/bookings")).bookings.length === 2);
 
 // Цена: сумма считается для новых заявок

@@ -28,8 +28,6 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const [error, setError] = useState("");
   const [offset, setOffset] = useState(0);
   const [motion, setMotion] = useState(false);
-  const [previewRemaining, setPreviewRemaining] = useState(props.me.previewRemaining);
-  useEffect(() => setPreviewRemaining(props.me.previewRemaining), [props.me.previewRemaining, props.me.user?.id]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -48,11 +46,12 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const available = now >= next;
   const starter = !props.me.promoUsed && promoActive(props.me.promoAt, now);
   const displaySlots = useMemo(() => starter ? slots.map(() => 5 as const) : slots, [starter]);
+  // После точки остановки должны оставаться карточки: иначе конец ленты уходит из окна.
+  const reelSlots = useMemo(() => [...displaySlots, ...displaySlots.slice(0, 6)], [displaySlots]);
   const spinActive = !!props.me.spinExpiresAt && now < props.me.spinExpiresAt;
   const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now);
   const oneDayDiscount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now, 1);
   const left = Math.max(0, Math.ceil((next - now) / 1000));
-  const previewAvailable = typeof previewRemaining === "number" && previewRemaining > 0;
 
   const spin = async (preview = false) => {
     if (busy || (!available && !preview)) return;
@@ -72,7 +71,6 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
         setOffset(target);
         await new Promise((resolve) => setTimeout(resolve, 4800));
       } else setOffset(target);
-      if (preview && "remaining" in reward) setPreviewRemaining(reward.remaining);
       if (!preview) props.onSpin(reward as { spinAt: number; spinPercent: number; spinExpiresAt: number });
       haptic("success");
     } catch (e) {
@@ -113,7 +111,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           <div className={`spin-track relative mt-4 overflow-hidden rounded-xl py-3 ${rolling ? "rolling" : ""}`}>
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
             <div className="spin-reel flex gap-2" style={{ transform: `translate3d(calc(50% - 48px - ${offset * 104}px), 0, 0)`, transition: motion && rolling ? "transform 4.7s cubic-bezier(.12,.72,.16,1)" : "none" }}>
-              {displaySlots.map((percent, i) => {
+              {reelSlots.map((percent, i) => {
                 const gadget = i >= 14 && i <= 16 ? showcase[i - 14] : null;
                 const card = gadget ?? tools[i % tools.length];
                 return <div key={i} className="flex w-24 shrink-0 flex-col items-center rounded-xl bg-white p-2 text-center shadow-sm">
@@ -128,10 +126,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           <p className="mt-3 text-[12px] text-dim">{starter ? "Пока действуют стартовые 15%, спин добавит 5% без продления срока." : "Шансы: скидка 5% — 70%, 10% — 25%, 15% — 5%. Скидка действует 24 часа."}</p>
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
-          {previewAvailable && !available && <button type="button" className="btn btn-main spin-button mt-4 w-full" disabled={busy} onClick={() => spin(true)}>{busy ? "Крутим…" : `Крутить сейчас · ${previewRemaining} пробных попыток`}</button>}
-          <button type="button" className={`${previewAvailable && !available ? "mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" : "btn btn-main spin-button mt-4 w-full"}`} disabled={busy || !available} onClick={() => spin()}>{busy ? "Крутим…" : available ? "Ежедневный спин со скидкой" : `Спин со скидкой через ${clock(left)}`}</button>
-          {previewAvailable && available && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин · осталось {previewRemaining} из 10 · без скидки</button>}
-          {typeof previewRemaining === "number" && previewRemaining === 0 && <p className="mt-3 text-center text-xs text-dim">Пробные попытки закончились.</p>}
+          <button type="button" className="btn btn-main spin-button mt-4 w-full" disabled={busy || !available} onClick={() => spin()}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
+          {props.me.owner && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин владельца · без скидки</button>}
         </section>
       </div>, document.body)}
     </>
