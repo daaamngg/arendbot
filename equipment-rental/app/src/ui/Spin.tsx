@@ -19,6 +19,8 @@ const showcase = [
 // Частота карточек соответствует шансам скидок: 70% / 25% / 5%.
 const slots: (5 | 10 | 15)[] = [5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 5, 5, 5, 10, 15];
 const REEL_HEAD = 4;
+// Витринные призы расположены отдельно друг от друга и не входят в пул выигрышей.
+const showcasePositions = new Map([[REEL_HEAD + 5, 0], [REEL_HEAD + 11, 1], [REEL_HEAD + 15, 2]]);
 const CARD_STEP = 104;
 const SPIN_MS = 7200;
 const reelPosition = (index: number) => `translate3d(-${48 + index * CARD_STEP}px, 0, 0)`;
@@ -31,6 +33,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const [rolling, setRolling] = useState(false);
   const [error, setError] = useState("");
   const [offset, setOffset] = useState(REEL_HEAD);
+  const [toolShift, setToolShift] = useState(() => Math.floor(Math.random() * tools.length));
+  const [previewVisual, setPreviewVisual] = useState(false);
   const reelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -49,7 +53,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const next = (props.me.spinAt ?? 0) + SPIN_COOLDOWN;
   const available = now >= next;
   const starter = !props.me.promoUsed && promoActive(props.me.promoAt, now);
-  const displaySlots = useMemo(() => starter ? slots.map(() => 5 as const) : slots, [starter]);
+  const displaySlots = useMemo(() => starter && !previewVisual ? slots.map(() => 5 as const) : slots, [starter, previewVisual]);
   // Карточки до и после основной ленты сохраняют заполненным окно у обоих краёв.
   const reelSlots = useMemo(() => [...displaySlots.slice(-REEL_HEAD), ...displaySlots, ...displaySlots.slice(0, 6)], [displaySlots]);
   const spinActive = !!props.me.spinExpiresAt && now < props.me.spinExpiresAt;
@@ -65,7 +69,9 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
     try {
       const reward = preview ? await api.spinPreview() : await api.spin();
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const target = REEL_HEAD + (starter ? 17 : reward.spinPercent === 15 ? 19 : reward.spinPercent === 10 ? 18 : 17);
+      const target = REEL_HEAD + (starter && !preview ? 17 : reward.spinPercent === 15 ? 19 : reward.spinPercent === 10 ? 18 : 17);
+      setPreviewVisual(preview);
+      setToolShift((previous) => (previous + 1) % tools.length);
       setOffset(REEL_HEAD);
       setRolling(true);
       if (!reduced) {
@@ -122,8 +128,9 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
             <div ref={reelRef} className="spin-reel flex gap-2" style={{ transform: reelPosition(offset) }}>
               {reelSlots.map((percent, i) => {
-                const gadget = i >= REEL_HEAD + 14 && i <= REEL_HEAD + 16 ? showcase[i - REEL_HEAD - 14] : null;
-                const card = gadget ?? tools[i % tools.length];
+                const showcaseIndex = showcasePositions.get(i);
+                const gadget = showcaseIndex === undefined ? null : showcase[showcaseIndex];
+                const card = gadget ?? tools[(i + toolShift) % tools.length];
                 return <div key={i} className="flex w-24 shrink-0 flex-col items-center rounded-xl bg-white p-2 text-center shadow-sm">
                   <img src={card.image} alt="" className="size-14 object-contain" />
                   <span className="w-full text-[11px] leading-tight text-dim" style={{ overflowWrap: "anywhere" }}>{card.title}</span>
