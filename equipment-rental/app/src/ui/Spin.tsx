@@ -66,7 +66,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         setMotion(true);
         setOffset(target);
-        await new Promise((resolve) => setTimeout(resolve, 2400));
+        await new Promise((resolve) => setTimeout(resolve, 4800));
       } else setOffset(target);
       if (!preview) props.onSpin(reward as { spinAt: number; spinPercent: number; spinExpiresAt: number });
       haptic("success");
@@ -107,7 +107,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           {(starter || spinActive) && <div className="mt-4 rounded-xl bg-coffee-soft p-3 text-[13px] text-coffee"><b>Ваша общая скидка</b><p className="mt-1">На 1 сутки: −{oneDayDiscount}%. От 2 суток: −{discount}%.</p><p className="mt-1 text-[11px]">Стартовые 15% действуют на первую аренду от 2 суток. Награда спина действует на любой срок. Скидки складываются, срок не продлевается.</p></div>}
           <div className="spin-track relative mt-4 overflow-hidden rounded-xl py-3">
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
-            <div className="flex gap-2" style={{ transform: `translateX(calc(50% - 48px - ${offset * 104}px))`, transition: motion && rolling ? "transform 2.3s cubic-bezier(.12,.72,.16,1)" : "none" }}>
+            <div className="flex gap-2" style={{ transform: `translateX(calc(50% - 48px - ${offset * 104}px))`, transition: motion && rolling ? "transform 4.7s cubic-bezier(.12,.72,.16,1)" : "none" }}>
               {displaySlots.map((percent, i) => {
                 const gadget = i >= 14 && i <= 16 ? showcase[i - 14] : null;
                 const card = gadget ?? tools[i % tools.length];
