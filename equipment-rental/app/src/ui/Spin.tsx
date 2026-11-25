@@ -28,6 +28,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const [error, setError] = useState("");
   const [offset, setOffset] = useState(0);
   const [motion, setMotion] = useState(false);
+  const [previewRemaining, setPreviewRemaining] = useState(props.me.previewRemaining);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -69,6 +70,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
         setOffset(target);
         await new Promise((resolve) => setTimeout(resolve, 4800));
       } else setOffset(target);
+      if (preview && "remaining" in reward) setPreviewRemaining(reward.remaining);
       if (!preview) props.onSpin(reward as { spinAt: number; spinPercent: number; spinExpiresAt: number });
       haptic("success");
     } catch (e) {
@@ -125,7 +127,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
           <button type="button" className="btn btn-main spin-button mt-4 w-full" disabled={busy || !available} onClick={() => spin()}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
-          {props.me.owner && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин владельца · без скидки</button>}
+          {typeof previewRemaining === "number" && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy || previewRemaining === 0} onClick={() => spin(true)}>Пробный спин · осталось {previewRemaining} из 10 · без скидки</button>}
         </section>
       </div>, document.body)}
     </>

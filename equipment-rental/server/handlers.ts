@@ -202,6 +202,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       return ok({
         user: { id: uid, name: user.name, phone: user.phone },
         owner: await isOwner(ctx, uid),
+        previewRemaining: (await ctx.db.get<number[]>("kv", "preview-spin-users"))?.includes(uid) ? Math.max(0, 10 - ((await ctx.db.get<number>("kv", `preview-spin:${uid}`)) ?? 0)) : null,
         demo: ctx.config.allowBrowser,
         promoAt: user.promoAt ?? null,
         spinAt: user.spinAt ?? null,
@@ -232,9 +233,16 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       return reward ? ok(reward) : fail(409, "spin cooldown");
     }
 
-    case "/spin/preview":
-      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
-      return ok({ spinPercent: spinReward(randomInt(100)) });
+    case "/spin/preview": {
+      if (!(await isOwner(ctx, uid)) || !(await ctx.db.get<number[]>("kv", "preview-spin-users"))?.includes(uid)) return fail(403, "forbidden");
+      const remaining = await ctx.db.tx(async (tx) => {
+        const used = (await tx.get<number>("kv", `preview-spin:${uid}`)) ?? 0;
+        if (used >= 10) return null;
+        await tx.put({ kind: "kv", id: `preview-spin:${uid}`, data: used + 1 });
+        return 9 - used;
+      });
+      return remaining === null ? fail(409, "preview limit") : ok({ spinPercent: spinReward(randomInt(100)), remaining });
+    }
 
     case "/items":
       return ok({ items: await items(ctx), delivery: DELIVERY_PRICE });
