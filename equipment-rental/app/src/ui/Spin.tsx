@@ -137,7 +137,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
           <button type="button" className="btn btn-main spin-button mt-4 w-full" disabled={busy || !available} onClick={() => spin()}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
-          {props.me.owner && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин владельца · без скидки</button>}
+          {props.me.previewAllowed && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин · без скидки</button>}
         </section>
       </div>, document.body)}
     </>

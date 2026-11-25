@@ -59,6 +59,7 @@ export type BookingView = Booking & { title: string };
 export interface Me {
   user: { id: number; name: string | null; phone: string | null };
   owner: boolean;
+  previewAllowed: boolean;
   demo: boolean;
   promoAt: number | null;
   promoUsed: boolean;

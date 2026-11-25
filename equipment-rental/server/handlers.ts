@@ -93,6 +93,7 @@ async function userOf(ctx: Ctx, uid: number, init: VerifiedInit): Promise<User> 
 
 const owners = async (ctx: Ctx) => (await ctx.db.get<number[]>("kv", "owners")) ?? [];
 const isOwner = async (ctx: Ctx, uid: number) => (await owners(ctx)).includes(uid);
+const canPreviewSpin = async (ctx: Ctx, uid: number) => (await ctx.db.get<number[]>("kv", "preview-spin-users"))?.includes(uid) ?? false;
 /** Проверочную заявку видит только тот, кто её оставил; остальные заявки — все */
 const visibleTo = (b: Booking, uid: number) => !b.test || b.clientId === uid;
 /** Кому слать уведомление о заявке: обычная — всем владельцам, проверочная — только её автору */
@@ -202,6 +203,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       return ok({
         user: { id: uid, name: user.name, phone: user.phone },
         owner: await isOwner(ctx, uid),
+        previewAllowed: await canPreviewSpin(ctx, uid),
         demo: ctx.config.allowBrowser,
         promoAt: user.promoAt ?? null,
         spinAt: user.spinAt ?? null,
@@ -233,7 +235,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
     }
 
     case "/spin/preview":
-      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      if (!(await canPreviewSpin(ctx, uid))) return fail(403, "forbidden");
       return ok({ spinPercent: spinReward(randomInt(100)) });
 
     case "/items":
