@@ -14,6 +14,13 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
   const [delivery, setDelivery] = useState(500);
   const [error, setError] = useState<string | null>(null);
   const [packageDays, setPackageDays] = useState<Record<string, number>>({});
+  const [activePackage, setActivePackage] = useState(0);
+  const [packagePaused, setPackagePaused] = useState(false);
+  useEffect(() => {
+    if (packagePaused) return;
+    const timer = setTimeout(() => setActivePackage((i) => (i + 1) % PACKAGES.length), 6000);
+    return () => clearTimeout(timer);
+  }, [activePackage, packagePaused]);
   useEffect(() => {
     api.items().then(
       (r) => {
@@ -33,7 +40,10 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
         <span className="orb orb-c" aria-hidden />
         <div className="glass relative overflow-hidden rounded-3xl p-5">
           <h1 className="glass-title font-display text-[26px] leading-[1.15] font-bold">Аренда оборудования в Самаре и области</h1>
-          <div className="mt-4 grid gap-3"><h2 className="font-display text-xl font-bold">Пакеты услуг</h2>{PACKAGES.map((pack) => { const days = packageDays[pack.id] ?? 1; const daily = pack.itemIds.reduce((sum, id) => sum + (items?.find((i) => i.id === id)?.priceDay ?? 0), 0); const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, Date.now(), days); return <div key={pack.id} className="glass relative overflow-hidden rounded-2xl p-4"><h3 className="relative z-10 font-bold">{pack.title}</h3><p className="relative z-10 mt-1 text-xs">{pack.names.join(" · ")}</p><div className="relative z-10 mt-3 flex items-center justify-between gap-2"><label className="text-sm">Дней <select className="ml-1 rounded-lg bg-white p-2" value={days} onChange={(e) => setPackageDays((old) => ({ ...old, [pack.id]: Number(e.target.value) }))}>{Array.from({ length: 30 }, (_, n) => <option key={n + 1} value={n + 1}>{n + 1}</option>)}</select></label><strong className="text-lg">{items ? rub(Math.round(daily * days * (100 - discount) / 100)) : "…"}</strong></div><p className="relative z-10 text-[11px]">Без доставки{discount ? ` · скидка ${discount}% учтена` : ""}</p><button className="btn btn-main relative z-10 mt-3 w-full" disabled={!items} onClick={() => props.onOpen(pack.id, days)}>Добавить в заявку</button><span className="glass-shine" aria-hidden /></div>; })}</div>
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between gap-2"><h2 className="font-display text-lg font-bold">Пакеты услуг</h2><div className="flex gap-1" aria-label="Выбрать пакет">{PACKAGES.map((pack, i) => <button key={pack.id} type="button" aria-label={pack.title} aria-current={i === activePackage ? "true" : undefined} onClick={() => setActivePackage(i)} className={`h-2.5 rounded-full transition-all ${i === activePackage ? "w-7 bg-coffee" : "w-2.5 bg-coffee/30"}`} />)}</div></div>
+            {(() => { const pack = PACKAGES[activePackage]; const days = packageDays[pack.id] ?? 1; const daily = pack.itemIds.reduce((sum, id) => sum + (items?.find((i) => i.id === id)?.priceDay ?? 0), 0); const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, Date.now(), days); return <div key={pack.id} onFocusCapture={() => setPackagePaused(true)} onBlurCapture={() => setPackagePaused(false)} className="glass package-enter relative min-h-[200px] overflow-hidden rounded-2xl p-4"><h3 className="relative z-10 font-bold">{pack.title}</h3><p className="relative z-10 mt-1 text-xs">{pack.names.join(" · ")}</p><div className="relative z-10 mt-3 flex items-center justify-between gap-2"><label className="text-sm">Дней <select className="ml-1 rounded-lg bg-white p-2" value={days} onChange={(e) => setPackageDays((old) => ({ ...old, [pack.id]: Number(e.target.value) }))}>{Array.from({ length: 30 }, (_, n) => <option key={n + 1} value={n + 1}>{n + 1}</option>)}</select></label><strong className="text-lg">{items ? rub(Math.round(daily * days * (100 - discount) / 100)) : "…"}</strong></div><p className="relative z-10 text-[11px]">Без доставки{discount ? ` · скидка ${discount}% учтена` : ""}</p><button className="btn btn-main relative z-10 mt-3 w-full" disabled={!items} onClick={() => props.onOpen(pack.id, days)}>Добавить в заявку</button><span className="glass-shine" aria-hidden /></div>; })()}
+          </div>
           <span className="glass-shine" aria-hidden />
         </div>
         <Spin me={props.me} onPromo={props.onPromo} onSpin={props.onSpin} />
