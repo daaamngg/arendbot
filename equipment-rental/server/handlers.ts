@@ -151,6 +151,7 @@ const money = (b: Booking) => (b.total != null ? rub(b.total) : `цена по �
 const requestText = (b: Booking, item: string) =>
   [
     `Заявка на аренду: ${item}`,
+    ...(b.itemIds ? [`Состав пакета: ${b.itemIds.map((id) => ITEMS.find((i) => i.id === id)?.title ?? id).join(", ")}`] : []),
     `${rangeText(b.from, b.to)}, ${daysText(b.days)}`,
     b.delivery ? `Доставка по городу: ${b.address || "адрес не указан"}` : "Самовывоз",
     `Сумма: ${money(b)}`,
