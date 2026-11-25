@@ -12,6 +12,8 @@ export const CATEGORIES = [
 const DEMOLITION_EXTRAS = "Можно добавить кувалду, молоток-демонтажник, лом и гвоздодёр";
 
 export const ITEMS: Item[] = [
+  { id: "crowbar", category: "tools", title: "Лом", short: "Демонтаж", specs: ["Входит в пакет «Мастер Демонтажа»"], priceDay: 350, icon: "hammer", photos: [] },
+  { id: "sledgehammer", category: "tools", title: "Кувалда", short: "Демонтаж", specs: ["Входит в пакет «Мастер Демонтажа»"], priceDay: 350, icon: "hammer", photos: [] },
   {
     id: "puzzi",
     category: "clean",

@@ -22,7 +22,7 @@ const clock = (left: number) => `${String(Math.floor(left / 3600)).padStart(2, "
 
 export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void }) {
   const [now, setNow] = useState(Date.now());
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => { try { if (sessionStorage.getItem("tehnika-spin-shown")) return false; sessionStorage.setItem("tehnika-spin-shown", "1"); return true; } catch { return true; } });
   const [busy, setBusy] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [error, setError] = useState("");
@@ -50,13 +50,13 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
   const oneDayDiscount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, now, 1);
   const left = Math.max(0, Math.ceil((next - now) / 1000));
 
-  const spin = async () => {
-    if (busy || !available) return;
+  const spin = async (preview = false) => {
+    if (busy || (!available && !preview)) return;
     setBusy(true);
     setError("");
     haptic("tap");
     try {
-      const reward = await api.spin();
+      const reward = preview ? await api.spinPreview() : await api.spin();
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const target = starter ? 17 : reward.spinPercent === 15 ? 19 : reward.spinPercent === 10 ? 18 : 17;
       setOffset(0);
@@ -68,7 +68,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
         setOffset(target);
         await new Promise((resolve) => setTimeout(resolve, 2400));
       } else setOffset(target);
-      props.onSpin(reward);
+      if (!preview) props.onSpin(reward as { spinAt: number; spinPercent: number; spinExpiresAt: number });
       haptic("success");
     } catch (e) {
       setError(errorText(e));
@@ -94,8 +94,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
         </button>
       )}
 
-      {open && createPortal(<div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={() => setOpen(false)}>
-        <section role="dialog" aria-modal="true" aria-label="Ежедневный бесплатный спин" className="max-h-[92dvh] w-full max-w-[540px] overflow-y-auto rounded-t-3xl bg-surface p-4 text-ink shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+      {open && createPortal(<div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setOpen(false)}>
+        <section role="dialog" aria-modal="true" aria-label="Ежедневный бесплатный спин" className="spin-dialog max-h-[92dvh] w-full max-w-[540px] overflow-y-auto rounded-t-3xl bg-surface p-4 text-ink shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-start gap-3">
             <div className="flex-1">
               <h2 className="font-display text-[21px] font-bold text-espresso">Бонус дня</h2>
@@ -105,7 +105,7 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           </div>
           <Promo me={props.me} onOpened={props.onPromo} />
           {(starter || spinActive) && <div className="mt-4 rounded-xl bg-coffee-soft p-3 text-[13px] text-coffee"><b>Ваша общая скидка</b><p className="mt-1">На 1 сутки: −{oneDayDiscount}%. От 2 суток: −{discount}%.</p><p className="mt-1 text-[11px]">Стартовые 15% действуют на первую аренду от 2 суток. Награда спина действует на любой срок. Скидки складываются, срок не продлевается.</p></div>}
-          <div className="relative mt-4 overflow-hidden rounded-xl bg-coffee-soft py-3">
+          <div className="spin-track relative mt-4 overflow-hidden rounded-xl py-3">
             <div className="absolute inset-y-1 left-1/2 z-10 w-0.5 bg-hot-ink" aria-hidden />
             <div className="flex gap-2" style={{ transform: `translateX(calc(50% - 48px - ${offset * 104}px))`, transition: motion && rolling ? "transform 2.3s cubic-bezier(.12,.72,.16,1)" : "none" }}>
               {displaySlots.map((percent, i) => {
@@ -123,7 +123,8 @@ export function Spin(props: { me: Me; onPromo: (promoAt: number) => void; onSpin
           <p className="mt-3 text-[12px] text-dim">{starter ? "Пока действуют стартовые 15%, спин добавит 5% без продления срока." : "Шансы: скидка 5% — 70%, 10% — 25%, 15% — 5%. Скидка действует 24 часа."}</p>
           {spinActive && <p className="mt-3 rounded-xl bg-coffee-soft px-3 py-2 text-[14px] font-semibold text-coffee">Сейчас ваша скидка −{discount}%</p>}
           {error && <p className="mt-2 text-[12px] text-bad">{error}</p>}
-          <button type="button" className="btn btn-main mt-4 w-full" disabled={busy || !available} onClick={spin}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
+          <button type="button" className="btn btn-main spin-button mt-4 w-full" disabled={busy || !available} onClick={() => spin()}>{busy ? "Крутим…" : available ? "Крутить бесплатно" : `Следующий спин через ${clock(left)}`}</button>
+          {props.me.owner && <button type="button" className="mt-3 w-full rounded-xl border border-coffee p-3 text-sm font-semibold text-coffee" disabled={busy} onClick={() => spin(true)}>Пробный спин владельца · без скидки</button>}
         </section>
       </div>, document.body)}
     </>

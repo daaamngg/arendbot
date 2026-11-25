@@ -2,6 +2,7 @@ import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { ITEMS, PHONE } from "../shared/catalog.ts";
 import { addDays, dayText, daysCount, daysOf, daysText, isDate, rangeText, rub, todaySamara } from "../shared/dates.ts";
 import { PROMO, SPIN_COOLDOWN, activeDiscount, promoActive, promoEnd, spinReward } from "../shared/promo.ts";
+import { PACKAGES, packageById } from "../shared/packages.ts";
 import { DAYS_AHEAD, DELIVERY_PRICE, MAX_DAYS, type Booking, type Item, type User } from "../shared/types.ts";
 import type { DocTable } from "./docs.ts";
 import { verifyInitData, type VerifiedInit } from "./init-data.ts";
@@ -102,7 +103,15 @@ async function items(ctx: Ctx): Promise<Item[]> {
   const prices = new Map((await ctx.db.prefix<number | null>("price", "")).map(([id, p]) => [id, p]));
   return ITEMS.map((i) => (prices.has(i.id) ? { ...i, priceDay: prices.get(i.id) ?? null } : i));
 }
-const itemOf = async (ctx: Ctx, id: unknown) => (await items(ctx)).find((i) => i.id === id);
+const itemOf = async (ctx: Ctx, id: unknown) => {
+  const list = await items(ctx);
+  const pack = packageById(id);
+  if (!pack) return list.find((i) => i.id === id);
+  const included = pack.itemIds.map((x) => list.find((i) => i.id === x)!);
+  return { ...included[0], id: pack.id, title: pack.title, short: pack.names.join(" · "), specs: [...pack.names], priceDay: included.every((i) => i.priceDay != null) ? included.reduce((sum, i) => sum + i.priceDay!, 0) : null };
+};
+const relatedIds = (id: string) => [id, ...PACKAGES.filter((p) => p.itemIds.some((x) => x === id)).map((p) => p.id)];
+const bookingsFor = async (db: Pick<Ctx["db"], "find">, id: string) => (await Promise.all(relatedIds(id).map((x) => db.find<Booking>("booking", "g1", x)))).flat().filter((b) => b.itemId === id || b.itemIds?.includes(id));
 const bookingRow = (b: Booking) => ({ kind: "booking", id: b.id, g1: b.itemId, g2: String(b.clientId), g3: b.status, data: b });
 const saveBooking = (ctx: Ctx, b: Booking) => ctx.db.put(bookingRow(b));
 
@@ -222,14 +231,18 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       return reward ? ok(reward) : fail(409, "spin cooldown");
     }
 
+    case "/spin/preview":
+      if (!(await isOwner(ctx, uid))) return fail(403, "forbidden");
+      return ok({ spinPercent: spinReward(randomInt(100)) });
+
     case "/items":
       return ok({ items: await items(ctx), delivery: DELIVERY_PRICE });
 
     case "/item": {
       const item = await itemOf(ctx, body?.id);
       if (!item) return fail(404, "not found");
-      const [closed, bookings] = await Promise.all([ctx.db.get<string[]>("closed", item.id), ctx.db.find<Booking>("booking", "g1", item.id)]);
-      const busy = [...busyDays(closed ?? [], bookings.filter((b) => visibleTo(b, uid)))].filter((d) => d >= today).sort();
+      const ids = packageById(item.id)?.itemIds ?? [item.id];
+      const busy = [...new Set((await Promise.all(ids.map(async (id) => busyDays((await ctx.db.get<string[]>("closed", id)) ?? [], (await bookingsFor(ctx.db, id)).filter((b) => visibleTo(b, uid)))))).flatMap((s) => [...s]))].filter((d) => d >= today).sort();
       return ok({ item, busy, delivery: DELIVERY_PRICE });
     }
 
@@ -264,6 +277,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       const b: Booking = {
         id: randomUUID().slice(0, 8),
         itemId: item.id,
+        ...(packageById(item.id) ? { itemIds: [...packageById(item.id)!.itemIds] } : {}),
         clientId: uid,
         clientName: user.name,
         phone: user.phone,
@@ -284,9 +298,11 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
       };
       // Проверка дней и запись — одной транзакцией: две заявки на одни дни не пройдут обе
       const created = await ctx.db.tx(async (tx) => {
-        const closed = (await tx.get<string[]>("closed", item.id)) ?? [];
-        const busy = busyDays(closed, (await tx.find<Booking>("booking", "g1", item.id)).filter((x) => visibleTo(x, uid)));
-        if (daysOf(from, to).some((d) => busy.has(d))) return false;
+        for (const id of b.itemIds ?? [item.id]) {
+          const closed = (await tx.get<string[]>("closed", id)) ?? [];
+          const busy = busyDays(closed, (await bookingsFor(tx, id)).filter((x) => visibleTo(x, uid)));
+          if (daysOf(from, to).some((d) => busy.has(d))) return false;
+        }
         await tx.put(bookingRow(b));
         return true;
       });
@@ -361,7 +377,7 @@ export async function handleApi(ctx: Ctx, path: string, body: any): Promise<Res>
         await tx.put({ kind: "closed", id: item.id, data: next });
         return next;
       });
-      const bookings = (await ctx.db.find<Booking>("booking", "g1", item.id)).filter((b) => HOLD.includes(b.status) && visibleTo(b, uid));
+      const bookings = (await bookingsFor(ctx.db, item.id)).filter((b) => HOLD.includes(b.status) && visibleTo(b, uid));
       return ok({ closed, booked: [...busyDays([], bookings)].sort() });
     }
     case "/owner/price": {

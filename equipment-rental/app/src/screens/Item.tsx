@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Check, Phone, Store, Truck, X } from "lucide-react";
 import { PHONE_HREF } from "../../../shared/catalog.ts";
-import { daysCount, daysText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
+import { addDays, daysCount, daysText, rangeText, rub, todaySamara } from "../../../shared/dates.ts";
 import { PROMO, activeDiscount } from "../../../shared/promo.ts";
 import type { Item } from "../../../shared/types.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
@@ -11,10 +11,10 @@ import { tell } from "../ui/dialog.tsx";
 import { ItemPicture, PhoneGate, Spinner, Step } from "../ui/ui.tsx";
 
 /** Оборудование: описание, свободные дни, доставка или самовывоз, сумма и заявка владельцу */
-export function ItemScreen(props: { id: string; me: Me; onPhone: (p: string) => void; onBooked: () => void; onSwitch: (id: string) => void }) {
+export function ItemScreen(props: { id: string; initialDays?: number; me: Me; onPhone: (p: string) => void; onBooked: () => void; onSwitch: (id: string) => void }) {
   const [data, setData] = useState<{ item: Item; busy: string[]; delivery: number } | null>(null);
-  const [from, setFrom] = useState<string>();
-  const [to, setTo] = useState<string>();
+  const [from, setFrom] = useState<string | undefined>(() => props.initialDays ? todaySamara() : undefined);
+  const [to, setTo] = useState<string | undefined>(() => props.initialDays ? addDays(todaySamara(), props.initialDays - 1) : undefined);
   const [delivery, setDelivery] = useState(true);
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");

@@ -37,7 +37,7 @@ check("чужая подпись 401", (await handleApi(ctx, "/me", { initData: 
 
 // Каталог
 const items = j(await A("/items")).items;
-check("13 единиц оборудования", items.length === 13);
+check("15 единиц оборудования", items.length === 15);
 check("новые цены оборудования", items.find((i: any) => i.id === "perforator")?.priceDay === 700 && items.find((i: any) => i.id === "drill")?.priceDay === 400 && items.find((i: any) => i.id === "grinder")?.priceDay === 500 && items.find((i: any) => i.id === "grinder-cordless")?.priceDay === 800);
 
 // Заявка: без телефона нельзя

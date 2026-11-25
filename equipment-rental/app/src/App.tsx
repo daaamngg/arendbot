@@ -10,7 +10,7 @@ import { DialogHost, dialogTookBack } from "./ui/dialog.tsx";
 import { Shell, Spinner, type Tab } from "./ui/ui.tsx";
 
 // Навигация: вкладка + стек вложенных экранов. «Назад» (телефона или MAX) снимает верхний экран
-type Screen = { name: "item"; id: string } | { name: "calendar"; item: Item };
+type Screen = { name: "item"; id: string; days?: number } | { name: "calendar"; item: Item };
 
 /** Ссылка из уведомления владельцу открывает «Управление», из уведомления клиенту — «Мои заявки» */
 const sp = startParam();
@@ -103,6 +103,7 @@ export default function App() {
     content = (
       <ItemScreen
         id={top.id}
+        initialDays={top.days}
         me={me}
         onPhone={(phone) => setMe((m) => (m ? { ...m, user: { ...m.user, phone } } : m))}
         // Другое оборудование из ленты — заменяет текущий экран, а не копится стопкой: «Назад» сразу в каталог
@@ -125,7 +126,7 @@ export default function App() {
   } else if (tab === "owner" && me.owner) {
     content = <OwnerScreen onCalendar={(item) => push({ name: "calendar", item })} />;
   } else {
-    content = <CatalogScreen me={me} onPromo={(promoAt) => setMe((x) => (x ? { ...x, promoAt } : x))} onSpin={(reward) => setMe((x) => (x ? { ...x, ...reward } : x))} onOpen={(id) => push({ name: "item", id })} />;
+    content = <CatalogScreen me={me} onPromo={(promoAt) => setMe((x) => (x ? { ...x, promoAt } : x))} onSpin={(reward) => setMe((x) => (x ? { ...x, ...reward } : x))} onOpen={(id, days) => push({ name: "item", id, days })} />;
   }
 
   return (

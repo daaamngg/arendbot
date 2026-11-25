@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES } from "../../../shared/catalog.ts";
 import { rub } from "../../../shared/dates.ts";
+import { PACKAGES } from "../../../shared/packages.ts";
+import { activeDiscount } from "../../../shared/promo.ts";
 import type { Item } from "../../../shared/types.ts";
 import { api, errorText, type Me } from "../lib/api.ts";
 import { Spin } from "../ui/Spin.tsx";
 import { ItemIcon, ItemPicture, Spinner } from "../ui/ui.tsx";
 
 /** Каталог: стеклянная шапка с условиями, подарок и оборудование по разделам — плитками по две в ряд */
-export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void; onOpen: (id: string) => void }) {
+export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => void; onSpin: (reward: { spinAt: number; spinPercent: number; spinExpiresAt: number }) => void; onOpen: (id: string, days?: number) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [delivery, setDelivery] = useState(500);
   const [error, setError] = useState<string | null>(null);
+  const [packageDays, setPackageDays] = useState<Record<string, number>>({});
   useEffect(() => {
     api.items().then(
       (r) => {
@@ -30,11 +33,7 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
         <span className="orb orb-c" aria-hidden />
         <div className="glass relative overflow-hidden rounded-3xl p-5">
           <h1 className="glass-title font-display text-[26px] leading-[1.15] font-bold">Аренда оборудования в Самаре и области</h1>
-          <div className="mt-3 flex flex-wrap gap-2 text-[13px] font-medium">
-            <span className="rounded-full bg-white/70 px-3 py-1">Оплата за сутки</span>
-            <span className="rounded-full bg-white/70 px-3 py-1">Доставка по городу {rub(delivery)}</span>
-            <span className="rounded-full bg-white/70 px-3 py-1">Без залога</span>
-          </div>
+          <div className="mt-4 grid gap-3"><h2 className="font-display text-xl font-bold">Пакеты услуг</h2>{PACKAGES.map((pack) => { const days = packageDays[pack.id] ?? 1; const daily = pack.itemIds.reduce((sum, id) => sum + (items?.find((i) => i.id === id)?.priceDay ?? 0), 0); const discount = activeDiscount(props.me.promoAt, props.me.promoUsed, props.me.spinPercent, props.me.spinExpiresAt, Date.now(), days); return <div key={pack.id} className="glass relative overflow-hidden rounded-2xl p-4"><h3 className="relative z-10 font-bold">{pack.title}</h3><p className="relative z-10 mt-1 text-xs">{pack.names.join(" · ")}</p><div className="relative z-10 mt-3 flex items-center justify-between gap-2"><label className="text-sm">Дней <select className="ml-1 rounded-lg bg-white p-2" value={days} onChange={(e) => setPackageDays((old) => ({ ...old, [pack.id]: Number(e.target.value) }))}>{Array.from({ length: 30 }, (_, n) => <option key={n + 1} value={n + 1}>{n + 1}</option>)}</select></label><strong className="text-lg">{items ? rub(Math.round(daily * days * (100 - discount) / 100)) : "…"}</strong></div><p className="relative z-10 text-[11px]">Без доставки{discount ? ` · скидка ${discount}% учтена` : ""}</p><button className="btn btn-main relative z-10 mt-3 w-full" disabled={!items} onClick={() => props.onOpen(pack.id, days)}>Добавить в заявку</button><span className="glass-shine" aria-hidden /></div>; })}</div>
           <span className="glass-shine" aria-hidden />
         </div>
         <Spin me={props.me} onPromo={props.onPromo} onSpin={props.onSpin} />
@@ -42,7 +41,7 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
       {error && <p className="text-bad">{error}</p>}
       {!items && !error && <Spinner />}
       {CATEGORIES.map((c) => {
-        const list = items?.filter((i) => i.category === c.id) ?? [];
+        const list = items?.filter((i) => i.category === c.id && !["crowbar", "sledgehammer"].includes(i.id)) ?? [];
         if (!list.length) return null;
         return (
           <section key={c.id} className="mb-5">

@@ -30,6 +30,7 @@ export type BookingStatus = "requested" | "confirmed" | "declined" | "cancelled"
 export interface Booking {
   id: string;
   itemId: string;
+  itemIds?: string[];
   clientId: number;
   clientName: string | null;
   phone: string;

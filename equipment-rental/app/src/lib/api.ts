@@ -71,6 +71,7 @@ export const api = {
   me: () => post<Me>("/me"),
   promoOpen: () => post<{ promoAt: number }>("/promo/open"),
   spin: () => post<{ spinAt: number; spinPercent: number; spinExpiresAt: number }>("/spin"),
+  spinPreview: () => post<{ spinPercent: number }>("/spin/preview"),
   items: () => post<{ items: Item[]; delivery: number }>("/items"),
   item: (id: string) => post<{ item: Item; busy: string[]; delivery: number }>("/item", { id }),
   phone: (phone: string) => post<{ ok: true }>("/phone", { phone, consent: true }),
