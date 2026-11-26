@@ -52,7 +52,7 @@ export function CatalogScreen(props: { me: Me; onPromo: (promoAt: number) => voi
       {error && <p className="text-bad">{error}</p>}
       {!items && !error && <Spinner />}
       {CATEGORIES.map((c) => {
-        const list = items?.filter((i) => i.category === c.id && !["crowbar", "sledgehammer"].includes(i.id)) ?? [];
+        const list = items?.filter((i) => i.category === c.id) ?? [];
         if (!list.length) return null;
         return (
           <section key={c.id} className="mb-5">
